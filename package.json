@@ -1,0 +1,35 @@
+{
+  "name": "qr-table-ordering",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=22.12 <23"
+  },
+  "scripts": {
+    "dev": "turbo run dev --filter=@app/api --filter=@app/customer --filter=@app/staff",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test --concurrency=1",
+    "test:e2e": "pnpm --filter @app/e2e test",
+    "db:migrate": "pnpm --filter @app/db migrate:dev",
+    "db:deploy": "pnpm --filter @app/db migrate:deploy",
+    "db:seed": "pnpm --filter @app/db seed",
+    "db:reset": "pnpm --filter @app/db reset",
+    "services:up": "docker compose -f infra/docker-compose.yml up -d",
+    "services:down": "docker compose -f infra/docker-compose.yml down",
+    "services:native": "bash scripts/native-services.sh",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "eslint": "^9.39.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.6.0",
+    "turbo": "^2.5.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}

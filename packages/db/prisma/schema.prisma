@@ -1,0 +1,549 @@
+// QR table ordering — MVP schema.
+// Money: integer kobo columns (suffix Kobo). Rates: basis points (suffix Bps, 750 = 7.5%).
+// Tenancy: every tenant-owned row has venueId; queries are scoped by the Prisma extension in
+// src/tenancy.ts. Times are UTC (timestamptz).
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum VenueStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum PaymentMode {
+  PREPAY
+  POSTPAY
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  WAITER
+  STATION
+}
+
+enum AuthMethod {
+  PASSWORD
+  PIN
+}
+
+enum TableSessionStatus {
+  AWAITING_OPEN
+  OPEN
+  CLOSED
+}
+
+enum TabStatus {
+  OPEN
+  PAID
+  CLOSED
+}
+
+enum OrderStatus {
+  AWAITING_PAYMENT
+  PLACED
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  SENT
+  ACCEPTED
+  UNAVAILABLE
+  READY
+  SERVED
+  VOIDED
+}
+
+enum AdjustmentType {
+  VOID
+  DISCOUNT
+}
+
+enum DiscountKind {
+  AMOUNT
+  PERCENT
+}
+
+enum PaymentMethod {
+  PAYSTACK
+  CASH
+  POS
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum ServiceRequestType {
+  CALL_WAITER
+  REQUEST_BILL
+}
+
+enum ServiceRequestStatus {
+  OPEN
+  ACKNOWLEDGED
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Organization {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  name      String
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @db.Timestamptz(3)
+  venues    Venue[]
+  staff     StaffMember[]
+}
+
+model Venue {
+  id                     String       @id @default(uuid(7)) @db.Uuid
+  organizationId         String       @db.Uuid
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  name                   String
+  slug                   String       @unique
+  address                String?
+  logoKey                String?
+  timezone               String       @default("Africa/Lagos")
+  currency               String       @default("NGN")
+  status                 VenueStatus  @default(ACTIVE)
+  suspendedAt            DateTime?    @db.Timestamptz(3)
+  paymentMode            PaymentMode  @default(POSTPAY)
+  vatBps                 Int          @default(750)
+  serviceChargeBps       Int          @default(0)
+  pricesIncludeVat       Boolean      @default(true)
+  paystackSubaccountCode String?
+  payoutBankCode         String?
+  payoutBankName         String?
+  payoutAccountNumber    String?
+  payoutAccountName      String?
+  payoutConfiguredAt     DateTime?    @db.Timestamptz(3)
+  createdAt              DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime     @updatedAt @db.Timestamptz(3)
+
+  stations        Station[]
+  tables          Table[]
+  categories      MenuCategory[]
+  menuItems       MenuItem[]
+  staff           StaffMember[]
+  devices         Device[]
+  tableSessions   TableSession[]
+  tabs            Tab[]
+  orders          Order[]
+  payments        Payment[]
+  serviceRequests ServiceRequest[]
+}
+
+model Station {
+  id        String     @id @default(uuid(7)) @db.Uuid
+  venueId   String     @db.Uuid
+  venue     Venue      @relation(fields: [venueId], references: [id])
+  name      String
+  sortOrder Int        @default(0)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
+  menuItems MenuItem[]
+  items     OrderItem[]
+
+  @@unique([venueId, name])
+}
+
+model Table {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  venueId         String           @db.Uuid
+  venue           Venue            @relation(fields: [venueId], references: [id])
+  label           String
+  area            String?
+  qrVersion       Int              @default(1)
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  sessions        TableSession[]
+  serviceRequests ServiceRequest[]
+
+  @@unique([venueId, label])
+}
+
+model MenuCategory {
+  id        String     @id @default(uuid(7)) @db.Uuid
+  venueId   String     @db.Uuid
+  venue     Venue      @relation(fields: [venueId], references: [id])
+  name      String
+  sortOrder Int        @default(0)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  venueId     String       @db.Uuid
+  venue       Venue        @relation(fields: [venueId], references: [id])
+  categoryId  String       @db.Uuid
+  category    MenuCategory @relation(fields: [categoryId], references: [id])
+  stationId   String       @db.Uuid
+  station     Station      @relation(fields: [stationId], references: [id])
+  name        String
+  description String?
+  priceKobo   Int
+  imageKey    String?
+  isAvailable Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  /// Items are archived, never deleted, because order items reference them.
+  archivedAt  DateTime?    @db.Timestamptz(3)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
+  addOns      MenuAddOn[]
+  orderItems  OrderItem[]
+
+  @@index([venueId, categoryId])
+}
+
+model MenuAddOn {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  venueId        String    @db.Uuid
+  menuItemId     String    @db.Uuid
+  menuItem       MenuItem  @relation(fields: [menuItemId], references: [id])
+  name           String
+  priceDeltaKobo Int       @default(0)
+  isAvailable    Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  archivedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([venueId, menuItemId])
+}
+
+model StaffMember {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  organizationId    String         @db.Uuid
+  organization      Organization   @relation(fields: [organizationId], references: [id])
+  venueId           String         @db.Uuid
+  venue             Venue          @relation(fields: [venueId], references: [id])
+  name              String
+  role              StaffRole
+  /// Owners and managers only; globally unique so email login finds one account.
+  email             String?        @unique
+  passwordHash      String?
+  pinHash           String
+  active            Boolean        @default(true)
+  failedPinAttempts Int            @default(0)
+  pinLockedUntil    DateTime?      @db.Timestamptz(3)
+  pinLockouts       Int            @default(0)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+  sessions          StaffSession[]
+
+  @@index([venueId])
+}
+
+/// A venue device (tablet/phone) enabled by a manager for PIN login.
+model Device {
+  id               String         @id @default(uuid(7)) @db.Uuid
+  venueId          String         @db.Uuid
+  venue            Venue          @relation(fields: [venueId], references: [id])
+  name             String
+  tokenHash        String         @unique
+  enabledByStaffId String         @db.Uuid
+  lastSeenAt       DateTime?      @db.Timestamptz(3)
+  revokedAt        DateTime?      @db.Timestamptz(3)
+  createdAt        DateTime       @default(now()) @db.Timestamptz(3)
+  sessions         StaffSession[]
+}
+
+model StaffSession {
+  id         String      @id @default(uuid(7)) @db.Uuid
+  venueId    String      @db.Uuid
+  staffId    String      @db.Uuid
+  staff      StaffMember @relation(fields: [staffId], references: [id])
+  method     AuthMethod
+  deviceId   String?     @db.Uuid
+  device     Device?     @relation(fields: [deviceId], references: [id])
+  expiresAt  DateTime    @db.Timestamptz(3)
+  revokedAt  DateTime?   @db.Timestamptz(3)
+  lastSeenAt DateTime    @default(now()) @db.Timestamptz(3)
+  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@index([staffId])
+}
+
+model PlatformAdmin {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+}
+
+/// At most one non-closed session per table (partial unique index in the migration).
+model TableSession {
+  id               String             @id @default(uuid(7)) @db.Uuid
+  venueId          String             @db.Uuid
+  venue            Venue              @relation(fields: [venueId], references: [id])
+  tableId          String             @db.Uuid
+  table            Table              @relation(fields: [tableId], references: [id])
+  status           TableSessionStatus @default(OPEN)
+  openedByStaffId  String?            @db.Uuid
+  openedAt         DateTime           @default(now()) @db.Timestamptz(3)
+  closedByStaffId  String?            @db.Uuid
+  closedAt         DateTime?          @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+  tab              Tab?
+  customerSessions CustomerSession[]
+  orders           Order[]
+  serviceRequests  ServiceRequest[]
+
+  @@index([venueId, status])
+  @@index([tableId])
+}
+
+/// An anonymous customer device that joined a table session (no login, ever).
+model CustomerSession {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  venueId        String       @db.Uuid
+  tableSessionId String       @db.Uuid
+  tableSession   TableSession @relation(fields: [tableSessionId], references: [id])
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  lastSeenAt     DateTime     @default(now()) @db.Timestamptz(3)
+  orders         Order[]
+}
+
+model Tab {
+  id                String       @id @default(uuid(7)) @db.Uuid
+  venueId           String       @db.Uuid
+  venue             Venue        @relation(fields: [venueId], references: [id])
+  tableSessionId    String       @unique @db.Uuid
+  tableSession      TableSession @relation(fields: [tableSessionId], references: [id])
+  status            TabStatus    @default(OPEN)
+  // Charge settings snapshotted when the table was opened.
+  vatBps            Int
+  serviceChargeBps  Int
+  pricesIncludeVat  Boolean
+  // Cached totals, recomputed by the shared calculateTab() on every change.
+  subtotalKobo      Int          @default(0)
+  discountKobo      Int          @default(0)
+  serviceChargeKobo Int          @default(0)
+  vatKobo           Int          @default(0)
+  vatIncludedKobo   Int          @default(0)
+  totalKobo         Int          @default(0)
+  paidKobo          Int          @default(0)
+  balanceKobo       Int          @default(0)
+  overpaidKobo      Int          @default(0)
+  version           Int          @default(1)
+  receiptToken      String       @unique
+  paidAt            DateTime?    @db.Timestamptz(3)
+  closedAt          DateTime?    @db.Timestamptz(3)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+  orders            Order[]
+  items             OrderItem[]
+  adjustments       Adjustment[]
+  payments          Payment[]
+
+  @@index([venueId, status])
+}
+
+model Order {
+  id                String           @id @default(uuid(7)) @db.Uuid
+  venueId           String           @db.Uuid
+  venue             Venue            @relation(fields: [venueId], references: [id])
+  tabId             String           @db.Uuid
+  tab               Tab              @relation(fields: [tabId], references: [id])
+  tableSessionId    String           @db.Uuid
+  tableSession      TableSession     @relation(fields: [tableSessionId], references: [id])
+  customerSessionId String?          @db.Uuid
+  customerSession   CustomerSession? @relation(fields: [customerSessionId], references: [id])
+  /// Sequence within the tab: "Order #2".
+  number            Int
+  status            OrderStatus
+  version           Int              @default(1)
+  placedAt          DateTime?        @db.Timestamptz(3)
+  cancelledAt       DateTime?        @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @db.Timestamptz(3)
+  items             OrderItem[]
+  payments          Payment[]
+
+  @@unique([tabId, number])
+  @@index([venueId, status])
+}
+
+model OrderItem {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  venueId        String          @db.Uuid
+  orderId        String          @db.Uuid
+  order          Order           @relation(fields: [orderId], references: [id])
+  tabId          String          @db.Uuid
+  tab            Tab             @relation(fields: [tabId], references: [id])
+  menuItemId     String          @db.Uuid
+  menuItem       MenuItem        @relation(fields: [menuItemId], references: [id])
+  stationId      String          @db.Uuid
+  station        Station         @relation(fields: [stationId], references: [id])
+  // Snapshot at order time: later menu changes never alter existing tabs.
+  name           String
+  basePriceKobo  Int
+  /// [{ id, name, priceDeltaKobo }]
+  addOns         Json            @default("[]")
+  unitPriceKobo  Int
+  quantity       Int
+  note           String?
+  status         OrderItemStatus @default(SENT)
+  version        Int             @default(1)
+  sentAt         DateTime?       @db.Timestamptz(3)
+  acceptedAt     DateTime?       @db.Timestamptz(3)
+  unavailableAt  DateTime?       @db.Timestamptz(3)
+  readyAt        DateTime?       @db.Timestamptz(3)
+  servedAt       DateTime?       @db.Timestamptz(3)
+  voidedAt       DateTime?       @db.Timestamptz(3)
+  actedByStaffId String?         @db.Uuid
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([venueId, stationId, status])
+  @@index([tabId])
+}
+
+model Adjustment {
+  id                 String         @id @default(uuid(7)) @db.Uuid
+  venueId            String         @db.Uuid
+  tabId              String         @db.Uuid
+  tab                Tab            @relation(fields: [tabId], references: [id])
+  type               AdjustmentType
+  discountKind       DiscountKind?
+  /// VOID: value of the voided line. DISCOUNT/AMOUNT: the discount amount.
+  amountKobo         Int?
+  percentBps         Int?
+  orderItemId        String?        @db.Uuid
+  reason             String
+  requestedByStaffId String         @db.Uuid
+  approvedByStaffId  String         @db.Uuid
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([venueId, createdAt])
+  @@index([tabId])
+}
+
+model Payment {
+  id                String          @id @default(uuid(7)) @db.Uuid
+  venueId           String          @db.Uuid
+  venue             Venue           @relation(fields: [venueId], references: [id])
+  tabId             String          @db.Uuid
+  tab               Tab             @relation(fields: [tabId], references: [id])
+  /// PREPAY: the order this payment releases to the stations.
+  orderId           String?         @db.Uuid
+  order             Order?          @relation(fields: [orderId], references: [id])
+  amountKobo        Int
+  method            PaymentMethod
+  /// Paystack channel reported on success (card, bank_transfer, ussd, ...).
+  channel           String?
+  status            PaymentStatus
+  /// Our reference, sent to Paystack as the transaction reference.
+  reference         String          @unique
+  email             String?
+  customerSessionId String?         @db.Uuid
+  recordedByStaffId String?         @db.Uuid
+  note              String?
+  authorizationUrl  String?
+  /// Online amount not yet confirmed counts against the balance until this time.
+  reservedUntil     DateTime?       @db.Timestamptz(3)
+  /// Portion of this payment beyond the balance owed (flagged for refund).
+  overpaidKobo      Int             @default(0)
+  providerPayload   Json?
+  failureReason     String?
+  verifiedAt        DateTime?       @db.Timestamptz(3)
+  lastCheckedAt     DateTime?       @db.Timestamptz(3)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([venueId, status, createdAt])
+  @@index([tabId])
+}
+
+model ServiceRequest {
+  id                    String               @id @default(uuid(7)) @db.Uuid
+  venueId               String               @db.Uuid
+  venue                 Venue                @relation(fields: [venueId], references: [id])
+  tableId               String               @db.Uuid
+  table                 Table                @relation(fields: [tableId], references: [id])
+  /// Null for "call waiter" from a table that is not open yet.
+  tableSessionId        String?              @db.Uuid
+  tableSession          TableSession?        @relation(fields: [tableSessionId], references: [id])
+  type                  ServiceRequestType
+  status                ServiceRequestStatus @default(OPEN)
+  acknowledgedAt        DateTime?            @db.Timestamptz(3)
+  acknowledgedByStaffId String?              @db.Uuid
+  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@index([venueId, status])
+}
+
+/// Append-only. UPDATE, DELETE and TRUNCATE are rejected by triggers (see migrations).
+/// No foreign keys on purpose: audit rows must outlive anything they describe.
+model AuditEvent {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  venueId    String   @db.Uuid
+  actorType  String
+  actorId    String?  @db.Uuid
+  approverId String?  @db.Uuid
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  ip         String?
+  deviceId   String?  @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([venueId, createdAt])
+  @@index([venueId, action])
+}
+
+/// Raw inbound payment-provider webhooks, stored before processing (dedupe and replay).
+model WebhookEvent {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  provider        String
+  /// sha256 of the raw body: identical deliveries are stored once.
+  dedupeKey       String    @unique
+  eventType       String
+  reference       String?
+  signatureValid  Boolean
+  payload         Json
+  receivedAt      DateTime  @default(now()) @db.Timestamptz(3)
+  processedAt     DateTime? @db.Timestamptz(3)
+  processingError String?
+
+  @@index([reference])
+}
+
+model IdempotencyRecord {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  /// Who sent the request (staff session, customer session, ...) plus method and route.
+  scope          String
+  key            String
+  requestHash    String
+  status         IdempotencyStatus @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime          @db.Timestamptz(3)
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+}

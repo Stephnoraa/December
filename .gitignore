@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.turbo
+.env
+.env.*
+!.env.example
+.local
+.data
+*.log
+playwright-report
+test-results
+e2e/.auth
+.DS_Store
+dev-dist

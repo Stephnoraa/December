@@ -1,0 +1,60 @@
+{
+  "name": "@app/db",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./seed": {
+      "types": "./dist/seed.d.ts",
+      "default": "./dist/seed.js"
+    }
+  },
+  "scripts": {
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "generate": "prisma generate",
+    "lint": "eslint .",
+    "typecheck": "prisma generate >/dev/null && tsc --noEmit",
+    "test": "vitest run",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:status": "dotenv -e ../../.env -- prisma migrate status",
+    "reset": "dotenv -e ../../.env -- prisma migrate reset --force --skip-seed && pnpm seed",
+    "seed": "dotenv -e ../../.env -- tsx src/seed.ts",
+    "studio": "dotenv -e ../../.env -- prisma studio"
+  },
+  "dependencies": {
+    "@app/shared": "workspace:*",
+    "@prisma/client": "~6.19.0",
+    "argon2": "^0.44.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^11.7.0",
+    "@types/node": "^22.18.0",
+    "dotenv-cli": "^10.0.0",
+    "pg": "^8.16.0",
+    "@types/pg": "^8.15.0",
+    "prisma": "~6.19.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "dist/testing.d.ts"
+      ],
+      "seed": [
+        "dist/seed.d.ts"
+      ]
+    }
+  }
+}

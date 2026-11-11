@@ -1,0 +1,11 @@
+dist
+coverage
+node_modules
+pnpm-lock.yaml
+.local
+.turbo
+playwright-report
+test-results
+packages/db/prisma/migrations
+MVP_BUILD_PROMPT.md
+BUILD_PROMPT.md
