@@ -84,6 +84,16 @@ Format: decision — reason.
 - Menu items and add-ons are archived, never deleted (order items keep pointing at them).
 - Checklist: stations, menu, tables, a waiter + a station login, an enabled device are required; payout account is required only for PREPAY venues (POSTPAY venues can take cash/POS without it).
 - Brand-neutral product name "QR Ordering" in the PWAs — the customer app shows the venue's own name and logo.
+- Realtime events carry ids + versions only; clients refetch over REST and drop TAB_UPDATED events older than their cached tab version. Events are emitted after commit (no outbox table in the MVP — a lost event is healed by the refetch on reconnect and a 60s background refetch).
+- Read-only scanners join a public `table:{id}` room after proving they hold a valid QR token, so ordering unlocks live when the waiter opens the table.
+- Once a table is open, anyone holding its current QR link can join that tab (as the brief specifies). Mitigations: waiter-opened sessions only, QR rotation per table, rate limits. A per-table join code is a possible later hardening.
+- "Call waiter" works on unopened tables (that's how a customer asks for the table to be opened); repeated taps within 2 minutes reuse the open request.
+- Order numbers are per tab (#1, #2…); the tab row is locked while numbering and recalculating.
+- Item status changes are conditional updates on the current status — two staff tapping at once can't both win.
+- "Unavailable" switches the menu item off venue-wide by default (station can opt out); the one-tap undo restores both the order item (back to Sent) and menu availability, within a 10-minute window shown on the station screen.
+- Station queue shows SENT and ACCEPTED items for PLACED orders; READY items move to the waiter's "Ready to serve" list.
+- Customer PWA imports a zod-free shared entry (`packages/shared/src/client.ts`) to stay small; CI enforces the 200 KB gzipped budget (`pnpm --filter @app/customer check:bundle`).
+- Cart is stored per table session in localStorage (survives reload/rescan); order submission reuses its Idempotency-Key on network retries.
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
 ## Blocked / follow-up
