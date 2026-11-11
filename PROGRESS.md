@@ -94,6 +94,18 @@ Format: decision — reason.
 - Station queue shows SENT and ACCEPTED items for PLACED orders; READY items move to the waiter's "Ready to serve" list.
 - Customer PWA imports a zod-free shared entry (`packages/shared/src/client.ts`) to stay small; CI enforces the 200 KB gzipped budget (`pnpm --filter @app/customer check:bundle`).
 - Cart is stored per table session in localStorage (survives reload/rescan); order submission reuses its Idempotency-Key on network retries.
+- Paystack endpoints and fields were checked against Paystack's official OpenAPI spec (github.com/PaystackOSS/openapi, dist/paystack.yaml) because paystack.com/docs blocks automated fetches; the webhook scheme (x-paystack-signature = hex HMAC-SHA512 of the raw body with the secret key) was confirmed from Paystack's docs pages via search. Doc URLs are cited in `apps/api/src/payments/paystack.provider.ts`.
+- A payment counts only after `GET /transaction/verify/:reference` says `success` in NGN — the webhook (signature-checked) and the customer's return from checkout both just trigger that verification. A signed webhook whose transaction Paystack doesn't confirm changes nothing.
+- Checkout channels: card, bank_transfer, ussd (as the brief lists).
+- Paystack fees are borne by the venue sub-account (`bearer: subaccount`), platform commission 0% (`PAYSTACK_SUBACCOUNT_PERCENTAGE=0`) — the operator bills subscriptions outside the app; both are env-configurable.
+- Concurrent partial payments: the tab row is locked while a payment is started; a pending online payment reserves its amount for `PAYMENT_RESERVATION_MINUTES` (15). "Pay full balance" pays balance − others' reservations; a customer starting again releases their own earlier reservation; backing out of checkout releases it immediately.
+- If late confirmations still exceed the balance (e.g. an expired reservation is paid), the money is recorded, the excess is flagged on the payment (`overpaidKobo`) and the tab (`overpaidKobo`), an OVERPAYMENT_FLAGGED audit event is written and the dashboard lists it as a refund due. Refunds are done by the venue/operator in the Paystack dashboard (no refund API in the MVP).
+- PREPAY: each order is paid on its own (amount = what releasing it adds to the tab total, so balances end at exactly zero); orders unpaid after 30 minutes are cancelled. If a paid PREPAY item turns out unavailable, the tab shows an overpaid credit (refund due). Staff can also settle a held order with cash/POS, which releases it.
+- Cash/POS amounts above the balance are refused ("record the balance, give change").
+- Webhook events are stored raw before processing (deduped by body hash); invalid signatures get 401 and are kept for audit; events for unknown references are acknowledged (other integrations on the same Paystack account); processing errors return non-2xx so Paystack retries.
+- Reconciliation runs every minute in-process (`@nestjs/schedule`) for pending payments older than 3 minutes; checkouts unconfirmed after 60 minutes become FAILED (a later Paystack success would still be recorded). A Redis lock makes one instance do the work.
+- Payout onboarding resolves the account name with Paystack before creating the sub-account; changing the account creates a new sub-account (old one left in Paystack).
+- Local/dev payments use a mock provider with a `/mock-pay/:reference` checkout page that delivers a correctly signed webhook; it is disabled in production by env validation.
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
 ## Blocked / follow-up

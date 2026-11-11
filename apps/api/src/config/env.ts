@@ -51,6 +51,10 @@ const envSchema = z
     PAYMENTS_PROVIDER: z.enum(['paystack', 'mock']).optional(),
     PAYSTACK_SECRET_KEY: optionalString,
     PAYSTACK_BASE_URL: url.default('https://api.paystack.co'),
+    /** Optional second key accepted for webhook signatures (key rotation / dashboard signing secret). */
+    PAYSTACK_WEBHOOK_SECRET: optionalString,
+    /** Who pays Paystack's fees on venue transactions: the venue sub-account or the platform account. */
+    PAYSTACK_FEE_BEARER: z.enum(['subaccount', 'account']).default('subaccount'),
     /** Platform commission on each venue sub-account (percentage_charge). Subscriptions are billed outside the app. */
     PAYSTACK_SUBACCOUNT_PERCENTAGE: z
       .string()
