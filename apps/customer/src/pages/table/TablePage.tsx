@@ -98,7 +98,7 @@ export function TablePage() {
         void qc.invalidateQueries({ queryKey: ['session'] });
         return;
       }
-      if (event === SocketEvent.MENU_CHANGED) {
+      if (event === SocketEvent.MENU_CHANGED || event === SocketEvent.VENUE_STATUS_CHANGED) {
         void qc.invalidateQueries({ queryKey: landingKey });
         void qc.invalidateQueries({ queryKey: ['session'] });
         return;
@@ -122,6 +122,7 @@ export function TablePage() {
       SocketEvent.TABLE_SESSION_OPENED,
       SocketEvent.TABLE_SESSION_CLOSED,
       SocketEvent.MENU_CHANGED,
+      SocketEvent.VENUE_STATUS_CHANGED,
       SocketEvent.TAB_UPDATED,
       SocketEvent.ORDER_ITEM_UPDATED,
       SocketEvent.ORDER_UPDATED,

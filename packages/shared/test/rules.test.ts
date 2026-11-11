@@ -136,3 +136,48 @@ describe('time helpers', () => {
     expect(elapsedLabel('2026-12-20T18:55:00Z', now)).toBe('1h 05m');
   });
 });
+
+describe('request schemas', () => {
+  it('parses every adjustment shape', async () => {
+    const { adjustmentSchema } = await import('../src/schemas');
+    const approver = { staffId: '01890000-0000-7000-8000-000000000000', pin: '1234' };
+    expect(
+      adjustmentSchema.parse({
+        type: 'VOID',
+        orderItemId: approver.staffId,
+        reason: 'Spilled',
+        approver,
+      }).type,
+    ).toBe('VOID');
+    expect(
+      adjustmentSchema.parse({
+        type: 'DISCOUNT',
+        kind: 'AMOUNT',
+        amountKobo: 500,
+        reason: 'Late',
+        approver,
+      }),
+    ).toMatchObject({ kind: 'AMOUNT' });
+    expect(
+      adjustmentSchema.parse({
+        type: 'DISCOUNT',
+        kind: 'PERCENT',
+        percentBps: 1000,
+        reason: 'Regular',
+        approver,
+      }),
+    ).toMatchObject({ kind: 'PERCENT' });
+    expect(
+      adjustmentSchema.safeParse({
+        type: 'DISCOUNT',
+        kind: 'PERCENT',
+        percentBps: 20_000,
+        reason: 'Too much',
+        approver,
+      }).success,
+    ).toBe(false);
+    expect(adjustmentSchema.safeParse({ type: 'VOID', reason: 'No item', approver }).success).toBe(
+      false,
+    );
+  });
+});

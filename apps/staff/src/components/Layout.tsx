@@ -1,7 +1,8 @@
 import { NavLink, Outlet } from 'react-router';
-import { Permission } from '@app/shared';
+import { useQueryClient } from '@tanstack/react-query';
+import { Permission, SocketEvent } from '@app/shared';
 import { useSession } from '../lib/session';
-import { useLiveConnection } from '../lib/socket';
+import { useLiveConnection, useSocketEvents } from '../lib/socket';
 import { cx } from './ui';
 
 interface NavItem {
@@ -45,6 +46,11 @@ export function ConnectionDot() {
 export function Layout() {
   const { me, can, logout } = useSession();
   const items = NAV.filter((n) => can(n.permission));
+  const qc = useQueryClient();
+  useSocketEvents(
+    [SocketEvent.VENUE_STATUS_CHANGED],
+    () => void qc.invalidateQueries({ queryKey: ['me'] }),
+  );
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-40 bg-slate-900 text-white">

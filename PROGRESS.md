@@ -106,6 +106,9 @@ Format: decision — reason.
 - Reconciliation runs every minute in-process (`@nestjs/schedule`) for pending payments older than 3 minutes; checkouts unconfirmed after 60 minutes become FAILED (a later Paystack success would still be recorded). A Redis lock makes one instance do the work.
 - Payout onboarding resolves the account name with Paystack before creating the sub-account; changing the account creates a new sub-account (old one left in Paystack).
 - Local/dev payments use a mock provider with a `/mock-pay/:reference` checkout page that delivers a correctly signed webhook; it is disabled in production by env validation.
+- Voids/discounts: the approver (manager/owner) picks their name and enters their PIN on the requesting device; a manager may approve their own request (both ids recorded). Wrong approver PINs count towards that approver's lockout. Discounts can be % or ₦, on one item or the whole bill; voids remove a billable item. They are allowed only while the table is open.
+- Dashboard "sales today" = payments collected (verified) since 06:00 Lagos, split by card/transfer/USSD/cash/POS; "refunds due" lists tabs with an overpaid credit from the last 7 days.
+- Suspending a venue blocks the customer pages (polite "ordering unavailable" message) and new orders/table openings; staff can still sign in and settle open tabs.
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
 ## Blocked / follow-up

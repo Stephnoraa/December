@@ -206,7 +206,8 @@ export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
 
 export const approverSchema = z.object({ staffId: id, pin: pinSchema });
 
-export const adjustmentSchema = z.discriminatedUnion('type', [
+// Plain union: DISCOUNT appears twice (AMOUNT / PERCENT), so it can't be a discriminated union on `type`.
+export const adjustmentSchema = z.union([
   z.object({
     type: z.literal('VOID'),
     orderItemId: id,
