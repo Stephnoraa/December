@@ -44,6 +44,12 @@ export default tseslint.config(
     rules: { '@typescript-eslint/consistent-type-imports': 'off' },
   },
   {
+    // CommonJS scripts (bins, icon generator) run directly with node.
+    files: ['**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
+    rules: { '@typescript-eslint/no-require-imports': 'off', 'no-console': 'off' },
+  },
+  {
     files: ['apps/customer/**/*.{ts,tsx}', 'apps/staff/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },

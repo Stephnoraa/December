@@ -81,11 +81,15 @@ export function TablePage() {
     if (open && !joined && joinRef.current.isIdle) joinRef.current.mutate();
   }, [open, joined]);
 
+  // Keep following our session after the table closes, to show the thank-you/receipt screen.
+  const [everJoined, setEverJoined] = useState(false);
+  if (joined && !everJoined) setEverJoined(true);
   const session = useQuery({
     queryKey: ['session'],
     queryFn: () => get<CustomerSessionDto>('/v1/public/session'),
-    enabled: joined,
+    enabled: joined || everJoined,
     refetchInterval: 60_000,
+    retry: false,
   });
 
   const onEvent = useCallback(
@@ -172,7 +176,9 @@ export function TablePage() {
   return (
     <div className="min-h-screen">
       <Header venue={data.venue} table={data.table} />
-      {open && joined && session.data ? (
+      {session.data &&
+      session.data.table.id === data.table.id &&
+      (joined || session.data.tableSession.status === 'CLOSED') ? (
         <OrderingView session={session.data} slug={slug} token={token} />
       ) : (
         <ReadOnlyView
@@ -258,7 +264,10 @@ function OrderingView({
   token: string;
 }) {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>('menu');
+  // Coming back from checkout (?payment=…) lands on the table view with the balance.
+  const [tab, setTab] = useState<Tab>(() =>
+    new URLSearchParams(window.location.search).has('payment') ? 'table' : 'menu',
+  );
   const [cartOpen, setCartOpen] = useState(false);
   const cart = useCart(session.tableSession.id);
   const closed = session.tableSession.status === 'CLOSED';

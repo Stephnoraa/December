@@ -30,12 +30,14 @@
     "reset": "dotenv -e ../../.env -- prisma migrate reset --force --skip-seed && pnpm seed",
     "seed": "dotenv -e ../../.env -- tsx src/seed.ts",
     "studio": "dotenv -e ../../.env -- prisma studio",
-    "reset-password": "dotenv -e ../../.env -- tsx src/cli/reset-password.ts"
+    "reset-password": "dotenv -e ../../.env -- tsx src/cli/reset-password.ts",
+    "create-admin": "dotenv -e ../../.env -- tsx src/cli/create-admin.ts"
   },
   "dependencies": {
     "@app/shared": "workspace:*",
     "@prisma/client": "~6.19.0",
-    "argon2": "^0.44.0"
+    "argon2": "^0.44.0",
+    "prisma": "~6.19.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^11.7.0",
@@ -43,7 +45,6 @@
     "dotenv-cli": "^10.0.0",
     "pg": "^8.16.0",
     "@types/pg": "^8.15.0",
-    "prisma": "~6.19.0",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3",
     "vitest": "^3.2.4"
@@ -57,5 +58,13 @@
         "dist/seed.d.ts"
       ]
     }
-  }
+  },
+  "bin": {
+    "qr-prisma": "./bin/qr-prisma.cjs"
+  },
+  "files": [
+    "dist",
+    "prisma",
+    "bin"
+  ]
 }

@@ -14,6 +14,16 @@ import { AuthController, PlatformAuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { FEATURE_MODULES } from './features';
 
+/** pino-pretty is a dev dependency: only use it when installed. */
+function hasPrettyLogs(): boolean {
+  try {
+    require.resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 @Module({})
 export class AppModule {
   static forRoot(env: Env): DynamicModule {
@@ -23,7 +33,7 @@ export class AppModule {
         pinoHttp: {
           level: env.LOG_LEVEL,
           transport:
-            env.NODE_ENV === 'development'
+            env.NODE_ENV === 'development' && hasPrettyLogs()
               ? { target: 'pino-pretty', options: { singleLine: true } }
               : undefined,
           redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],

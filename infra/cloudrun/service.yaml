@@ -1,0 +1,112 @@
+# Cloud Run service for the API. Applied by .github/workflows/deploy.yml with
+#   gcloud run services replace infra/cloudrun/service.yaml --region $REGION
+# after substituting SERVICE_NAME, IMAGE, APP_ENV and the secret names (see infra/cloudrun/deploy.sh).
+# Docs: https://cloud.google.com/run/docs/triggering/websockets
+#       https://cloud.google.com/run/docs/configuring/session-affinity
+#       https://cloud.google.com/run/docs/configuring/billing-settings
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ${SERVICE_NAME}
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # No cold starts during service.
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '${MAX_INSTANCES}'
+        # Socket.IO clients (and its polling fallback) stick to one instance where possible.
+        run.googleapis.com/sessionAffinity: 'true'
+        # Instance-based billing: CPU stays allocated so the in-process scheduler
+        # (payment reconciliation, prepay expiry) runs between requests.
+        run.googleapis.com/cpu-throttling: 'false'
+        run.googleapis.com/startup-cpu-boost: 'true'
+    spec:
+      # WebSocket connections are requests: allow the maximum (60 min); clients reconnect + refetch.
+      timeoutSeconds: 3600
+      containerConcurrency: 250
+      serviceAccountName: ${RUNTIME_SERVICE_ACCOUNT}
+      containers:
+        - image: ${IMAGE}
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: '1'
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /healthz
+            periodSeconds: 3
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /healthz
+            periodSeconds: 30
+          env:
+            - name: APP_ENV
+              value: ${APP_ENV}
+            - name: TRUST_PROXY
+              value: 'true'
+            - name: LOG_LEVEL
+              value: info
+            - name: PAYMENTS_PROVIDER
+              value: paystack
+            - name: STORAGE_DRIVER
+              value: s3
+            - name: S3_REGION
+              value: auto
+            - name: API_PUBLIC_URL
+              value: ${API_PUBLIC_URL}
+            - name: CUSTOMER_APP_URL
+              value: ${CUSTOMER_APP_URL}
+            - name: STAFF_APP_URL
+              value: ${STAFF_APP_URL}
+            - name: PUBLIC_ASSET_BASE_URL
+              value: ${PUBLIC_ASSET_BASE_URL}
+            - name: S3_ENDPOINT
+              value: ${S3_ENDPOINT}
+            - name: S3_BUCKET
+              value: ${S3_BUCKET}
+            # Secrets from Secret Manager (one secret per variable, suffixed with the environment).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: DATABASE_URL-${APP_ENV}
+                  key: latest
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: REDIS_URL-${APP_ENV}
+                  key: latest
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: SESSION_SECRET-${APP_ENV}
+                  key: latest
+            - name: QR_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: QR_TOKEN_SECRET-${APP_ENV}
+                  key: latest
+            - name: PAYSTACK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: PAYSTACK_SECRET_KEY-${APP_ENV}
+                  key: latest
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: S3_ACCESS_KEY_ID-${APP_ENV}
+                  key: latest
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: S3_SECRET_ACCESS_KEY-${APP_ENV}
+                  key: latest
+  traffic:
+    - percent: 100
+      latestRevision: true

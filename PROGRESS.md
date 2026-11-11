@@ -15,6 +15,15 @@ Built autonomously per the owner's instructions: no approval stops, decisions lo
 | M5 – Owner controls | not started |                                                                                    |
 | M6 – Ship           | not started |                                                                                    |
 
+## Final verification (2026-11-11)
+
+- `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm format:check`: pass.
+- `pnpm test`: 146 tests pass (shared 38, db 32, api 75, customer 1) against native Postgres 17 + Redis 8.
+- `pnpm test:e2e`: critical path + anti-prank pass (3 consecutive green runs) on the built stack.
+- Whole stack started with the dev servers against a freshly migrated + seeded database; the
+  critical-path test passes against it (remote mode, exercising cross-origin API calls).
+- Customer initial JS: 117 KB gzipped (budget 200 KB).
+
 ## Implementation plan
 
 **M0 – Scaffold.** pnpm + Turborepo; root ESLint (flat) + Prettier; strict TS base config;
@@ -109,12 +118,46 @@ Format: decision — reason.
 - Voids/discounts: the approver (manager/owner) picks their name and enters their PIN on the requesting device; a manager may approve their own request (both ids recorded). Wrong approver PINs count towards that approver's lockout. Discounts can be % or ₦, on one item or the whole bill; voids remove a billable item. They are allowed only while the table is open.
 - Dashboard "sales today" = payments collected (verified) since 06:00 Lagos, split by card/transfer/USSD/cash/POS; "refunds due" lists tabs with an overpaid credit from the last 7 days.
 - Suspending a venue blocks the customer pages (polite "ordering unavailable" message) and new orders/table openings; staff can still sign in and settle open tabs.
+- API image: multi-stage, non-root (`node` user, tini), `pnpm deploy --prod` output with the Prisma client generated in place; the same image runs migrations via the `qr-prisma` wrapper bin (uses `DIRECT_DATABASE_URL`).
+- Cloud Run: min instances 1, 60-minute request timeout (WebSocket max), session affinity, CPU always allocated (instance-based billing) so the in-process scheduler runs, startup CPU boost, `/healthz` probes. Secrets from Secret Manager, one per variable per environment.
+- Frontends on Cloudflare Pages with SPA fallback (no 404.html) and `_headers` for caching/security; `VITE_API_URL` injected at build time. Same parent domain for API and apps so cookies stay first-party (SameSite=Lax).
+- The mock payment provider is refused when `APP_ENV=production`; with `NODE_ENV=production` it needs `APP_ENV=staging` + `ALLOW_MOCK_PAYMENTS=true` (dedicated e2e staging service only).
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
 ## Blocked / follow-up
 
-- (none yet)
+- **No Docker on the build machine.** `infra/docker-compose.yml`, `infra/Dockerfile` and the Testcontainers path were written but not executed here. Verified instead: the same tests against native Postgres 17 + Redis 8, and the Dockerfile's `pnpm deploy --prod` + `qr-prisma generate` + boot sequence run outside Docker with production-like env. First CI run will exercise Docker/Testcontainers.
+- **No cloud deploys were attempted** (as instructed). The deploy workflow, `infra/cloudrun/*` and Pages steps are untested until the accounts below exist.
+- **Critical-path e2e against staging** needs a dedicated staging API with `ALLOW_MOCK_PAYMENTS=true` (Paystack's hosted checkout can't be automated); real Paystack test mode is covered by the manual `docs/PAYSTACK_TEST_CHECKLIST.md`. See RUNBOOK §11.
+- **paystack.com/docs blocks automated fetching**: endpoints/fields were verified against Paystack's official OpenAPI spec and docs snippets. Before go-live, confirm in the Paystack dashboard whether a separate _webhook signing secret_ is enabled on your account; if so, set it as `PAYSTACK_WEBHOOK_SECRET` (both keys are accepted).
+- **Refunds** are flagged (dashboard "Refunds due", audit) but executed manually in the Paystack dashboard or in cash — no refund API in the MVP.
+- **Changing a payout account** creates a new Paystack sub-account; the old one stays in Paystack (harmless). Updating via `PUT /subaccount/:code` is a possible refinement.
+- **Open-table joining**: anyone holding a table's current QR link can join an _open_ table's tab (per the brief). If remote pranks on open tables happen, add a per-session join code or staff confirmation of each new device.
+- **Postgres RLS** not enabled (defence in depth). Production should run the app with a DB role that doesn't own the tables (so the audit triggers can't be disabled by the app role).
+- **Email**: none in the MVP, so no password-reset email; operators use `pnpm --filter @app/db reset-password <email>`.
+- Real-device check on a mid-range Android phone on 4G (customer bundle is 117 KB gzipped initial JS; menu photos ~20–40 KB WebP, lazy-loaded) — do this during the pilot test run.
 
 ## What I need from you (before deploying)
 
-To be completed in M6.
+Accounts
+
+1. **Domain** you control (e.g. `example.ng`) with DNS on Cloudflare: subdomains for API, customer app, staff app, media — per environment (see RUNBOOK §3).
+2. **Google Cloud** project with billing; region choice (see RUNBOOK §9: London / Frankfurt / Johannesburg latency test).
+3. **Neon** account: one project (or branch) each for staging and production.
+4. **Upstash** Redis database each for staging and production (same region as Cloud Run).
+5. **Cloudflare** account: R2 (2 buckets with public custom domains + CORS PUT from the staff app) and 4 Pages projects.
+6. **Paystack** business account, verified for live payments; test keys for staging, live keys for production; webhook URL set in both modes.
+7. **GitHub** repository (remote `origin` is configured; nothing has been pushed) with environments `staging` and `production` (required reviewers on production).
+
+GitHub environment **variables** (per environment)
+`GCP_PROJECT`, `GCP_REGION`, `ARTIFACT_REPO`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `RUNTIME_SERVICE_ACCOUNT`, `API_PUBLIC_URL`, `CUSTOMER_APP_URL`, `STAFF_APP_URL`, `PUBLIC_ASSET_BASE_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `CLOUDFLARE_ACCOUNT_ID`, `CF_PAGES_CUSTOMER_PROJECT`, `CF_PAGES_STAFF_PROJECT`, optional `MAX_INSTANCES`.
+
+GitHub environment **secrets** (per environment)
+`DIRECT_DATABASE_URL` (Neon direct URL, for migrations in CI), `CLOUDFLARE_API_TOKEN` (Pages: Edit).
+
+Google **Secret Manager** secrets (suffix `-staging` / `-production`; read by Cloud Run)
+`DATABASE_URL` (Neon pooled URL, `?sslmode=require`), `REDIS_URL` (`rediss://default:<token>@<host>:6379`), `SESSION_SECRET` and `QR_TOKEN_SECRET` (each `openssl rand -base64 48`), `PAYSTACK_SECRET_KEY` (`sk_test_…` staging, `sk_live_…` production), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (R2 token).
+
+Optional env (have defaults): `PAYSTACK_WEBHOOK_SECRET`, `PAYSTACK_FEE_BEARER` (`subaccount`), `PAYSTACK_SUBACCOUNT_PERCENTAGE` (`0`), `PAYMENT_RESERVATION_MINUTES` (15), `RECONCILE_AFTER_MINUTES` (3), `PAYMENT_ABANDON_MINUTES` (60), `PREPAY_ORDER_EXPIRY_MINUTES` (30), rate limits, `COOKIE_DOMAIN`, `CORS_ORIGINS`, `REDIS_KEY_PREFIX`.
+
+After the first deploy: create your platform admin (`pnpm --filter @app/db create-admin`, RUNBOOK §3.9) and run the Paystack test checklist on staging.

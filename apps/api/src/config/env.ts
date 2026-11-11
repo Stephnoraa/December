@@ -66,6 +66,8 @@ const envSchema = z
     PAYMENT_ABANDON_MINUTES: intWithDefault(60, 5, 1440),
     PREPAY_ORDER_EXPIRY_MINUTES: intWithDefault(30, 5, 1440),
     ENABLE_SCHEDULER: bool(true),
+    /** Staging end-to-end environment only: allow the mock provider with NODE_ENV=production. */
+    ALLOW_MOCK_PAYMENTS: bool(false),
 
     STORAGE_DRIVER: z.enum(['s3', 'local']).default('local'),
     LOCAL_STORAGE_DIR: z.string().default('.data/storage'),
@@ -105,15 +107,22 @@ const envSchema = z
         message: 'Required when PAYMENTS_PROVIDER=paystack',
       });
     }
+    const wantsMock =
+      env.PAYMENTS_PROVIDER === 'mock' || (!env.PAYMENTS_PROVIDER && !env.PAYSTACK_SECRET_KEY);
+    if (wantsMock && env.APP_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PAYMENTS_PROVIDER'],
+        message: 'The mock payment provider cannot run in production',
+      });
+    }
     if (env.NODE_ENV === 'production') {
-      if (
-        env.PAYMENTS_PROVIDER === 'mock' ||
-        (!env.PAYMENTS_PROVIDER && !env.PAYSTACK_SECRET_KEY)
-      ) {
+      if (wantsMock && !(env.APP_ENV === 'staging' && env.ALLOW_MOCK_PAYMENTS)) {
         ctx.addIssue({
           code: 'custom',
           path: ['PAYMENTS_PROVIDER'],
-          message: 'The mock payment provider cannot run in production',
+          message:
+            'The mock payment provider needs APP_ENV=staging and ALLOW_MOCK_PAYMENTS=true (end-to-end test environment only)',
         });
       }
       if (env.STORAGE_DRIVER === 'local') {
@@ -152,8 +161,9 @@ const envSchema = z
       redisKeyPrefix: env.REDIS_KEY_PREFIX ?? `qr:${env.APP_ENV}`,
       cookieSecure,
       corsOrigins: [...new Set(corsOrigins)],
-      /** Mock checkout + local storage routes; never in production. */
-      devRoutesEnabled: env.NODE_ENV !== 'production',
+      /** Mock checkout + local storage routes: local/test, or an opted-in staging E2E environment. Never production. */
+      devRoutesEnabled:
+        env.APP_ENV !== 'production' && (env.NODE_ENV !== 'production' || env.ALLOW_MOCK_PAYMENTS),
     };
   });
 

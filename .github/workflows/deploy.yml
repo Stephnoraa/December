@@ -1,0 +1,119 @@
+name: Deploy
+
+# main → staging. A tag like v1.2.3 → production (add required reviewers to the
+# "production" GitHub environment for the manual approval step).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'staging' }}
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation to Google Cloud
+    env:
+      APP_ENV: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'staging' }}
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/${{ vars.ARTIFACT_REPO }}/qr-api:${{ github.sha }}
+      API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+      CUSTOMER_APP_URL: ${{ vars.CUSTOMER_APP_URL }}
+      STAFF_APP_URL: ${{ vars.STAFF_APP_URL }}
+      PUBLIC_ASSET_BASE_URL: ${{ vars.PUBLIC_ASSET_BASE_URL }}
+      S3_ENDPOINT: ${{ vars.S3_ENDPOINT }}
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
+      MAX_INSTANCES: ${{ vars.MAX_INSTANCES || '4' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push API image
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -f infra/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Run database migrations (Neon direct URL)
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+        run: bash infra/cloudrun/migrate.sh
+
+      - name: Deploy API to Cloud Run
+        run: bash infra/cloudrun/deploy.sh
+
+      - name: Check readiness
+        run: |
+          for i in $(seq 1 20); do
+            curl -fsS "$API_PUBLIC_URL/readyz" && exit 0
+            sleep 6
+          done
+          echo "API not ready" && exit 1
+
+      - name: Build frontends with the API URL
+        env:
+          VITE_API_URL: ${{ vars.API_PUBLIC_URL }}
+        run: |
+          pnpm --filter @app/shared build
+          pnpm --filter @app/customer build
+          pnpm --filter @app/staff build
+
+      - name: Deploy customer app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/customer/dist --project-name=${{ vars.CF_PAGES_CUSTOMER_PROJECT }} --branch=main --commit-dirty=true
+
+      - name: Deploy staff app to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/staff/dist --project-name=${{ vars.CF_PAGES_STAFF_PROJECT }} --branch=main --commit-dirty=true
+
+  # Critical-path E2E against a deployed environment. Needs a staging API running with
+  # PAYMENTS_PROVIDER=mock (see docs/RUNBOOK.md "E2E against staging"); run on demand.
+  e2e-staging:
+    if: github.event_name == 'workflow_dispatch'
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      E2E_BASE_API_URL: ${{ vars.API_PUBLIC_URL }}
+      E2E_BASE_CUSTOMER_URL: ${{ vars.CUSTOMER_APP_URL }}
+      E2E_BASE_STAFF_URL: ${{ vars.STAFF_APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @app/e2e exec playwright install --with-deps chromium
+      - run: pnpm test:e2e

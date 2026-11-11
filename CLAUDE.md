@@ -42,6 +42,9 @@ pnpm lint | pnpm typecheck | pnpm test | pnpm test:e2e
 ```
 
 Tests without Docker: `TEST_DATABASE_URL=postgresql://qr:qr@127.0.0.1:5432/postgres TEST_REDIS_URL=redis://127.0.0.1:6379/15 pnpm test`.
+Operator CLIs: `pnpm --filter @app/db reset-password <email>`, `ADMIN_PASSWORD=… pnpm --filter @app/db create-admin <email>`.
+The prod image runs migrations with `node_modules/.bin/qr-prisma migrate deploy` (DIRECT_DATABASE_URL).
+Note: Prisma blocks `migrate reset` (`pnpm db:reset`) for AI agents without the user's explicit consent — use a fresh database instead.
 New migration: edit `packages/db/prisma/schema.prisma`, then `pnpm db:migrate --name <name>`
 (or `prisma migrate diff` into a new folder). Never edit applied migrations.
 

@@ -16,6 +16,8 @@ export const E2E = {
   staffPort: 4174,
 };
 const remote = Boolean(process.env.E2E_BASE_STAFF_URL);
+/** Base for direct API calls from tests: same-origin proxy locally, the API domain when remote. */
+export const API_BASE = remote ? (process.env.E2E_BASE_API_URL ?? '') : '';
 export const URLS = {
   api: process.env.E2E_BASE_API_URL ?? `http://localhost:${E2E.apiPort}`,
   customer: process.env.E2E_BASE_CUSTOMER_URL ?? `http://localhost:${E2E.customerPort}`,
