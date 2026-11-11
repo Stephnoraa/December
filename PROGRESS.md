@@ -79,6 +79,11 @@ Format: decision — reason.
 - Rate limits per IP: 300/min overall, 10/min sign-in + PIN login, 120/min public customer routes; counters in Redis (namespaced by `REDIS_KEY_PREFIX`) so they hold across Cloud Run instances.
 - Idempotency records are scoped to the caller (staff session, customer session, admin, or IP for anonymous) + method + route, kept 24h; failed requests release the key.
 - Operator password reset via `pnpm --filter @app/db reset-password <email>` (prints a temporary password, signs out sessions) — no email in the MVP.
+- Local-storage media served at `/media/*` by the API (Vite owns `/assets/*` for build output).
+- Menu photos are re-encoded to 640px WebP (q72, ~20–40 KB), logos to 256px; originals deleted after processing.
+- Menu items and add-ons are archived, never deleted (order items keep pointing at them).
+- Checklist: stations, menu, tables, a waiter + a station login, an enabled device are required; payout account is required only for PREPAY venues (POSTPAY venues can take cash/POS without it).
+- Brand-neutral product name "QR Ordering" in the PWAs — the customer app shows the venue's own name and logo.
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
 ## Blocked / follow-up

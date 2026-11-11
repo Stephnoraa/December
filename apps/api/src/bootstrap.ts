@@ -47,7 +47,7 @@ export async function createApp(
   if (env.STORAGE_DRIVER === 'local') {
     const { StorageService } = await import('./storage/storage.service');
     app.use(
-      '/assets',
+      '/media',
       express.static(app.get(StorageService).localRoot(), { maxAge: '1h', fallthrough: false }),
     );
   }

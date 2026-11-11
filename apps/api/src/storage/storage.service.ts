@@ -46,7 +46,7 @@ export class StorageService {
 
   publicUrl(key: string | null | undefined): string | null {
     if (!key) return null;
-    if (this.env.STORAGE_DRIVER === 'local') return `${this.env.API_PUBLIC_URL}/assets/${key}`;
+    if (this.env.STORAGE_DRIVER === 'local') return `${this.env.API_PUBLIC_URL}/media/${key}`;
     return `${(this.env.PUBLIC_ASSET_BASE_URL ?? '').replace(/\/$/, '')}/${key}`;
   }
 

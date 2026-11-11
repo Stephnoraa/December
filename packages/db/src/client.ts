@@ -10,7 +10,7 @@ export interface CreateClientOptions {
 export function createPrismaClient(opts: CreateClientOptions = {}) {
   const base = new PrismaClient({
     datasourceUrl: opts.url,
-    log: opts.log ?? ['warn', 'error'],
+    log: opts.log ?? ['warn'],
   });
   return base.$extends(tenancyExtension);
 }
