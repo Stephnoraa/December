@@ -33,6 +33,7 @@ export function testEnv(databaseUrl: string, overrides: Record<string, string> =
     APP_ENV: 'test',
     DATABASE_URL: databaseUrl,
     REDIS_URL: inject('redisUrl'),
+    REDIS_KEY_PREFIX: `test:${randomUUID()}`,
     SESSION_SECRET: 'test-session-secret-0123456789abcdef',
     QR_TOKEN_SECRET: 'test-qr-secret-0123456789abcdef-xyz',
     PAYMENTS_PROVIDER: 'mock',
@@ -42,6 +43,8 @@ export function testEnv(databaseUrl: string, overrides: Record<string, string> =
     ENABLE_SCHEDULER: 'false',
     LOG_LEVEL: 'silent',
     RATE_LIMIT_PER_MINUTE: '100000',
+    AUTH_RATE_LIMIT_PER_MINUTE: '100000',
+    PUBLIC_RATE_LIMIT_PER_MINUTE: '100000',
     API_PUBLIC_URL: 'http://localhost:3999',
     ...overrides,
   });

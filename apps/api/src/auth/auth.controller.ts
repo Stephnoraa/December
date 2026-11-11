@@ -13,6 +13,7 @@ import {
   type SignupInput,
 } from '@app/shared';
 import { ZBody } from '../common/zod.pipe';
+import { AUTH_THROTTLE } from '../common/rate-limits';
 import {
   clientIp,
   type AdminPrincipal,
@@ -24,7 +25,6 @@ import { AuthService, DEVICE_COOKIE_DAYS } from './auth.service';
 import { AdminAuth, CurrentAdmin, CurrentStaff, StaffAuth } from './guards';
 import { Permission } from '@app/shared';
 
-const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
 const ADMIN_SESSION_HOURS = 12;
 
 @Controller('v1/auth')
@@ -100,7 +100,7 @@ export class AuthController {
 
   @Post('pin-login')
   @HttpCode(200)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle(AUTH_THROTTLE)
   async pinLogin(
     @ZBody(pinLoginSchema) body: PinLoginInput,
     @Req() req: AppRequest,

@@ -13,7 +13,10 @@ interface ThrottlerStorageRecord {
  * One INCR + PEXPIRE (+ PTTL) per request keeps Upstash command usage low.
  */
 export class RedisThrottlerStorage implements ThrottlerStorage {
-  constructor(private readonly redis: Redis) {}
+  constructor(
+    private readonly redis: Redis,
+    private readonly prefix: string,
+  ) {}
 
   async increment(
     key: string,
@@ -22,7 +25,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     blockDuration: number,
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
-    const hitKey = `rl:${throttlerName}:${key}`;
+    const hitKey = `${this.prefix}:rl:${throttlerName}:${key}`;
     const blockKey = `${hitKey}:blocked`;
     const blockedTtl = await this.redis.pttl(blockKey);
     if (blockedTtl > 0) {

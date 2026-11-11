@@ -34,6 +34,8 @@ const envSchema = z
 
     DATABASE_URL: z.string().min(1),
     REDIS_URL: optionalString,
+    /** Namespaces rate-limit keys so environments can share one Redis database. */
+    REDIS_KEY_PREFIX: optionalString,
 
     SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
     QR_TOKEN_SECRET: z.string().min(32, 'QR_TOKEN_SECRET must be at least 32 characters'),
@@ -73,6 +75,8 @@ const envSchema = z
     PUBLIC_ASSET_BASE_URL: optionalString,
 
     RATE_LIMIT_PER_MINUTE: intWithDefault(300, 10, 100_000),
+    AUTH_RATE_LIMIT_PER_MINUTE: intWithDefault(10, 1, 100_000),
+    PUBLIC_RATE_LIMIT_PER_MINUTE: intWithDefault(120, 1, 100_000),
   })
   .superRefine((env, ctx) => {
     if (env.STORAGE_DRIVER === 's3') {
@@ -141,6 +145,7 @@ const envSchema = z
     return {
       ...env,
       paymentsProvider,
+      redisKeyPrefix: env.REDIS_KEY_PREFIX ?? `qr:${env.APP_ENV}`,
       cookieSecure,
       corsOrigins: [...new Set(corsOrigins)],
       /** Mock checkout + local storage routes; never in production. */

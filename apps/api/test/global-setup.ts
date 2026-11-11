@@ -17,7 +17,13 @@ export default async function setup(project: TestProject) {
   const pg = await startTestPostgres();
   let redisUrl = process.env.TEST_REDIS_URL;
   let stopRedis: (() => Promise<unknown>) | undefined;
-  if (!redisUrl) {
+  if (redisUrl) {
+    // Dedicated test database: start each run with empty rate-limit counters.
+    const { default: Redis } = await import('ioredis');
+    const client = new Redis(redisUrl);
+    await client.flushdb();
+    await client.quit();
+  } else {
     const { RedisContainer } = await import('@testcontainers/redis');
     const container = await new RedisContainer('redis:7-alpine').start();
     redisUrl = container.getConnectionUrl();

@@ -76,6 +76,9 @@ Format: decision — reason.
 - Default `pricesIncludeVat = true` — menu price is what the guest pays; venues can switch to exclusive.
 - VAT applies on top of the service charge (subtotal → discounts → service charge → VAT, as the brief orders it); with inclusive prices, service charge is computed on the net-of-VAT amount.
 - Charge settings (VAT %, service %, inclusive) are snapshotted on the tab when the table opens — changing settings mid-service doesn't alter open tabs.
+- Rate limits per IP: 300/min overall, 10/min sign-in + PIN login, 120/min public customer routes; counters in Redis (namespaced by `REDIS_KEY_PREFIX`) so they hold across Cloud Run instances.
+- Idempotency records are scoped to the caller (staff session, customer session, admin, or IP for anonymous) + method + route, kept 24h; failed requests release the key.
+- Operator password reset via `pnpm --filter @app/db reset-password <email>` (prints a temporary password, signs out sessions) — no email in the MVP.
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
 ## Blocked / follow-up

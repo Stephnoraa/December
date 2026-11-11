@@ -29,7 +29,8 @@
     "migrate:status": "dotenv -e ../../.env -- prisma migrate status",
     "reset": "dotenv -e ../../.env -- prisma migrate reset --force --skip-seed && pnpm seed",
     "seed": "dotenv -e ../../.env -- tsx src/seed.ts",
-    "studio": "dotenv -e ../../.env -- prisma studio"
+    "studio": "dotenv -e ../../.env -- prisma studio",
+    "reset-password": "dotenv -e ../../.env -- tsx src/cli/reset-password.ts"
   },
   "dependencies": {
     "@app/shared": "workspace:*",

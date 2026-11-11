@@ -210,3 +210,29 @@ describe('platform admin', () => {
     await agent.get('/v1/platform/auth/me').expect(401);
   });
 });
+
+describe('rate limiting', () => {
+  it('limits sign-in attempts per IP', async () => {
+    const limited = await createTestContext({
+      seed: false,
+      env: { AUTH_RATE_LIMIT_PER_MINUTE: '3' },
+    });
+    try {
+      for (let i = 0; i < 3; i++) {
+        await limited
+          .http()
+          .post('/v1/auth/login')
+          .send({ email: 'a@b.co', password: 'nope-nope' })
+          .expect(401);
+      }
+      const res = await limited
+        .http()
+        .post('/v1/auth/login')
+        .send({ email: 'a@b.co', password: 'nope-nope' })
+        .expect(429);
+      expect(res.body.error.code).toBe('RATE_LIMITED');
+    } finally {
+      await limited.close();
+    }
+  });
+});

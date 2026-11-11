@@ -9,6 +9,7 @@ import type { Env } from './config/env';
 import { tenantContextMiddleware } from './common/tenant.middleware';
 import { REDIS, type RedisHandle } from './common/redis';
 import { RealtimeAdapter } from './realtime/realtime.adapter';
+import { RATE_LIMITS_KEY, type RateLimits } from './common/rate-limits';
 
 /** Builds the configured Nest application (used by main.ts and by integration tests). */
 export async function createApp(
@@ -22,6 +23,10 @@ export async function createApp(
   });
   if (opts.logger !== false) app.useLogger(app.get(Logger));
   if (env.TRUST_PROXY) app.set('trust proxy', true);
+  app.getHttpAdapter().getInstance().locals[RATE_LIMITS_KEY] = {
+    auth: env.AUTH_RATE_LIMIT_PER_MINUTE,
+    public: env.PUBLIC_RATE_LIMIT_PER_MINUTE,
+  } satisfies RateLimits;
   app.disable('x-powered-by');
   app.use(tenantContextMiddleware);
   app.use(

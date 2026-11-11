@@ -36,7 +36,9 @@ export class AppModule {
         inject: [REDIS],
         useFactory: (redis: RedisHandle) => ({
           throttlers: [{ name: 'default', ttl: 60_000, limit: env.RATE_LIMIT_PER_MINUTE }],
-          storage: redis.client ? new RedisThrottlerStorage(redis.client) : undefined,
+          storage: redis.client
+            ? new RedisThrottlerStorage(redis.client, env.redisKeyPrefix)
+            : undefined,
         }),
       }),
       ...FEATURE_MODULES,
