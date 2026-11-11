@@ -5,15 +5,15 @@ Built autonomously per the owner's instructions: no approval stops, decisions lo
 
 ## Milestone status
 
-| Milestone           | Status      | Notes                                                                              |
-| ------------------- | ----------- | ---------------------------------------------------------------------------------- |
-| M0 – Scaffold       | in progress | monorepo, tooling, compose, CI, health, env validation, docs                       |
-| M1 – Data & auth    | in progress | schema, migrations + audit triggers, tenancy, idempotency, seed, auth, super-admin |
-| M2 – Venue setup    | not started |                                                                                    |
-| M3 – Ordering loop  | not started |                                                                                    |
-| M4 – Payments       | not started |                                                                                    |
-| M5 – Owner controls | not started |                                                                                    |
-| M6 – Ship           | not started |                                                                                    |
+| Milestone           | Status | Notes                                                                              |
+| ------------------- | ------ | ---------------------------------------------------------------------------------- |
+| M0 – Scaffold       | done   | monorepo, tooling, compose, CI, health, env validation, docs                       |
+| M1 – Data & auth    | done   | schema, migrations + audit triggers, tenancy, idempotency, seed, auth, super-admin |
+| M2 – Venue setup    | done   |                                                                                    |
+| M3 – Ordering loop  | done   |                                                                                    |
+| M4 – Payments       | done   |                                                                                    |
+| M5 – Owner controls | done   |                                                                                    |
+| M6 – Ship           | done   |                                                                                    |
 
 ## Final verification (2026-11-11)
 

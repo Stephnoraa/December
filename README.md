@@ -6,6 +6,7 @@ floor; owners get a live dashboard and an append-only audit log. Built for a Dec
 Abuja.
 
 - Spec: [`MVP_BUILD_PROMPT.md`](MVP_BUILD_PROMPT.md) · Status and decisions: [`PROGRESS.md`](PROGRESS.md)
+- **How to use the app (owners, staff, guests): [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)**
 - Conventions: [`CLAUDE.md`](CLAUDE.md) · Operations: [`docs/RUNBOOK.md`](docs/RUNBOOK.md)
 - Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Pilot setup: [`docs/PILOT_CHECKLIST.md`](docs/PILOT_CHECKLIST.md)
 
