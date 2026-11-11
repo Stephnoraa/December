@@ -16,8 +16,18 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
+  # Until the cloud settings exist in the GitHub environment, explain instead of failing.
+  deploy-not-configured:
+    needs: ci
+    if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice title=Deploy skipped::Cloud settings are not configured yet (GitHub environment variables such as GCP_WORKLOAD_IDENTITY_PROVIDER). See PROGRESS.md 'What I need from you' and docs/RUNBOOK.md section 3."
+
   deploy:
     needs: ci
+    # Runs automatically once the cloud settings are configured.
+    if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'staging' }}
