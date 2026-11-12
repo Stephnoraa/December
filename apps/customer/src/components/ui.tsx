@@ -71,26 +71,36 @@ export function Sheet({
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 className="text-xl font-bold">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="-m-1 rounded-full p-2 text-stone-500 active:bg-stone-100"
-          >
-            ✕
-          </button>
+    // Centred dialog. The panel is capped to the visible viewport (dvh, so phone browser bars
+    // don't hide its bottom) and its body scrolls; the overlay also scrolls as a fallback for
+    // browsers without dvh support.
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-black/50"
+      onClick={onClose}
+    >
+      <div className="flex min-h-full items-center justify-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-lg flex-col rounded-3xl bg-white shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex shrink-0 items-start justify-between gap-4 px-5 pb-3 pt-5">
+            <h2 className="text-xl font-bold">{title}</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="-m-1 rounded-full p-2 text-stone-500 active:bg-stone-100"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5">
+            {children}
+          </div>
         </div>
-        {children}
       </div>
     </div>
   );
