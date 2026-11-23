@@ -13,3 +13,4 @@ test-results
 e2e/.auth
 .DS_Store
 dev-dist
+.neon

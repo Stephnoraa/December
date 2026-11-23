@@ -31,5 +31,9 @@
     "turbo": "^2.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.0"
+  },
+  "dependencies": {
+    "@neon/config": "^1.14.6",
+    "@neon/env": "^2.1.9"
   }
 }
