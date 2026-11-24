@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, type ReactNode } from 'react';
 import { hasPermission, type MeDto, type Permission } from '@app/shared';
-import { ApiError, get, post } from './api';
+import { ApiError, get, post, staffTokens } from './api';
 import { resetSocket } from './socket';
 
 interface SessionValue {
@@ -33,7 +33,9 @@ export function SessionProvider({ me, children }: { me: MeDto; children: ReactNo
     me,
     can: (p) => hasPermission(me.staff.role, p),
     logout: async () => {
+      // Revokes the session server-side; the local tokens are dropped either way.
       await post('/v1/auth/logout').catch(() => undefined);
+      staffTokens.clear();
       resetSocket();
       qc.clear();
       window.location.assign('/');

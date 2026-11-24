@@ -76,7 +76,12 @@ New migration: edit `packages/db/prisma/schema.prisma`, then `pnpm db:migrate --
 - Mutations accept `Idempotency-Key` (global interceptor). Clients always send one.
 - Audit money/permission-sensitive changes with `AuditService.record(tx, …)` in the same tx.
 - Emit socket events only after commit (`EventsService.emit`); events carry ids + `version`.
-- Cookies: `qr_staff`, `qr_device`, `qr_customer`, `qr_admin` — HttpOnly, SameSite=Lax, signed JWT.
+- Auth is bearer tokens, no cookies (apps and API may be on different sites): 15-min JWT access
+  token in `Authorization: Bearer`, rotating one-time refresh token (`<sessionId>.<secret>`, only
+  its SHA-256 stored; reuse revokes the session) via `/v1/auth/refresh`,
+  `/v1/platform/auth/refresh`, `/v1/public/session/refresh`. PIN devices send `X-Device-Token`.
+  Socket.IO authenticates with `auth: { token }`. Token-returning endpoints use
+  `@CredentialResponse()` (no idempotent replay storage, `Cache-Control: no-store`).
 - Don't use `import type` for Nest-injected classes in apps/api (DI needs runtime metadata).
 
 ## Testing rules

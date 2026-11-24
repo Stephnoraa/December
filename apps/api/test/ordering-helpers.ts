@@ -11,11 +11,6 @@ export async function tableLink(ctx: TestContext, label: string) {
   return { table, token, base: `/v1/public/t/${DEMO.venueSlug}/${token}` };
 }
 
-export function cookieHeader(setCookie: string[] | string | undefined): string {
-  const list = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
-  return list.map((c) => c.split(';')[0]).join('; ');
-}
-
 export async function listen(ctx: TestContext): Promise<string> {
   const server = ctx.app.getHttpServer() as import('node:http').Server;
   if (!server.listening)
@@ -24,11 +19,11 @@ export async function listen(ctx: TestContext): Promise<string> {
   return `http://127.0.0.1:${port}`;
 }
 
-export async function connectSocket(url: string, cookie?: string): Promise<Socket> {
+export async function connectSocket(url: string, accessToken?: string): Promise<Socket> {
   const socket = io(url, {
     path: '/socket.io',
     transports: ['websocket'],
-    extraHeaders: cookie ? { cookie } : undefined,
+    auth: accessToken ? { token: accessToken } : undefined,
     reconnection: false,
   });
   await new Promise<void>((resolve, reject) => {

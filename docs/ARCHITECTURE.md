@@ -19,8 +19,12 @@ Paystack ─────────────── webhook (HMAC-SHA512) ─
 ## Request flow and tenancy
 
 1. `tenantContextMiddleware` opens an empty AsyncLocalStorage context for each request.
-2. Guards authenticate from HttpOnly cookies (`qr_staff`, `qr_customer`, `qr_admin`) and call
+2. Guards authenticate the `Authorization: Bearer` access token (staff, customer or admin JWT,
+   15 minutes), load the session row (so revocation is immediate) and call
    `tenancy.bindVenue(venueId)`. Public routes bind after verifying the table QR token.
+   Clients keep the access token in memory and a one-time refresh token in localStorage;
+   refresh tokens rotate on every use and reusing an old one revokes the session. No cookies,
+   so the PWAs and the API can live on different sites.
 3. Every Prisma query on a tenant model goes through the tenancy extension, which ANDs
    `venueId = <bound venue>` into reads/updates/deletes and sets/checks it on creates. No
    context → error. Cross-venue work (signup, webhooks before the venue is known, scheduler,
@@ -43,7 +47,7 @@ Tabs cache the result with a monotonic `version`; every change that affects the 
 
 - A waiter opens a table → `TableSession` (partial unique index: one live session per table)
   - `Tab` with the venue's charge settings snapshotted.
-- Customers join with an anonymous signed cookie; ordering requires an OPEN session.
+- Customers join with an anonymous session token; ordering requires an OPEN session.
 - Order items snapshot name, base price, add-ons and unit price. PREPAY orders wait in
   `AWAITING_PAYMENT` and are invisible to stations until paid.
 - Item lifecycle: SENT → ACCEPTED | UNAVAILABLE; ACCEPTED → READY → SERVED; billable → VOIDED

@@ -1,4 +1,5 @@
 import type { ApiErrorBody } from '@app/shared';
+import { isAuthTokens, TokenStore } from './auth';
 
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
@@ -17,9 +18,17 @@ export function apiUrl(path: string): string {
   return `${BASE}${path}`;
 }
 
+/** The anonymous table session's tokens (issued when the guest joins a table). */
+export const customerTokens = new TokenStore('qr.customer.refresh', () =>
+  apiUrl('/v1/public/session/refresh'),
+);
+
 function newKey(): string {
   return crypto.randomUUID();
 }
+
+const offline = () =>
+  new ApiError(0, 'NETWORK', 'No connection. Check your internet and try again.');
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -29,24 +38,41 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
-/** fetch wrapper: cookies included, JSON in/out, Idempotency-Key on every mutation. */
-export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+/**
+ * Sends a request with the guest's bearer token. When the API rejects the access token it is
+ * refreshed once and the request retried (a 401 comes from guards, before anything runs).
+ */
+async function send(path: string, opts: RequestOptions): Promise<Response> {
   const method = opts.method ?? (opts.body === undefined ? 'GET' : 'POST');
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (method !== 'GET') headers['Idempotency-Key'] = opts.idempotencyKey ?? newKey();
-  let res: Response;
-  try {
-    res = await fetch(apiUrl(path), {
-      method,
-      headers,
-      credentials: 'include',
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-      signal: opts.signal,
-    });
-  } catch {
-    throw new ApiError(0, 'NETWORK', 'No connection. Check your internet and try again.');
-  }
+  const attempt = async (token: string | null) => {
+    try {
+      return await fetch(apiUrl(path), {
+        method,
+        headers: token ? { ...headers, Authorization: `Bearer ${token}` } : headers,
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        signal: opts.signal,
+      });
+    } catch {
+      throw offline();
+    }
+  };
+  const token = await customerTokens.accessToken().catch(() => {
+    throw offline();
+  });
+  const res = await attempt(token);
+  if (res.status !== 401 || !token) return res;
+  const fresh = await customerTokens.accessToken(true).catch(() => {
+    throw offline();
+  });
+  return fresh ? attempt(fresh) : res;
+}
+
+/** fetch wrapper: bearer auth, JSON in/out, Idempotency-Key on every mutation. */
+export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const res = await send(path, opts);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const data = text ? (JSON.parse(text) as unknown) : undefined;
@@ -59,6 +85,8 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
       err?.details,
     );
   }
+  // Joining a table returns the session's tokens.
+  if (isAuthTokens(data)) customerTokens.save(data);
   return data as T;
 }
 
@@ -92,7 +120,6 @@ export async function uploadImage(uploadUrlPath: string, file: File): Promise<st
     method: 'PUT',
     headers: target.headers,
     body: file,
-    credentials: 'omit',
   });
   if (!res.ok) throw new ApiError(res.status, 'UPLOAD_FAILED', 'Upload failed. Please try again.');
   return target.uploadKey;

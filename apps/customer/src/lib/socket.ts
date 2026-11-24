@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { SocketEvent, SocketPayload } from '@app/shared';
+import { customerTokens } from './api';
 
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || undefined;
 let shared: Socket | null = null;
@@ -9,7 +10,13 @@ export function getSocket(): Socket {
   if (!shared) {
     shared = io(BASE ?? window.location.origin, {
       path: '/socket.io',
-      withCredentials: true,
+      // Called on every (re)connect, so a reconnect always carries a fresh access token.
+      auth: (cb) => {
+        customerTokens.accessToken().then(
+          (token) => cb(token ? { token } : {}),
+          () => cb({}),
+        );
+      },
       transports: ['websocket', 'polling'],
       reconnectionDelayMax: 10_000,
     });
@@ -20,7 +27,7 @@ export function getSocket(): Socket {
 let generation = 0;
 const subscribers = new Set<() => void>();
 
-/** Reconnects so the socket picks up a new customer cookie (after joining a table). */
+/** Reconnects so the socket picks up the new customer token (after joining a table). */
 export function resetSocket(): void {
   shared?.disconnect();
   shared = null;

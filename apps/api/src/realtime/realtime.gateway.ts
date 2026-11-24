@@ -7,7 +7,6 @@ import {
   SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets';
-import { parse as parseCookies } from 'cookie';
 import type { Server, Socket } from 'socket.io';
 import { tenancy, type DbClient } from '@app/db';
 import {
@@ -22,7 +21,6 @@ import { SessionResolver } from '../auth/session-resolver.service';
 import { InjectDb } from '../common/db';
 import { EventsService } from '../common/events.service';
 import type { CustomerPrincipal, StaffPrincipal } from '../common/request';
-import { COOKIE } from '../common/tokens.service';
 import { PublicMenuService } from '../ordering/public-menu.service';
 
 interface SocketData {
@@ -33,8 +31,8 @@ interface SocketData {
 type Ack = { ok: true } | { ok: false; error: string };
 
 /**
- * Socket.IO entry point. Sockets authenticate with the same HttpOnly cookies as HTTP and are
- * placed in rooms they are allowed to see:
+ * Socket.IO entry point. Sockets authenticate with the same access token as HTTP, sent in the
+ * handshake as `auth: { token }`, and are placed in rooms they are allowed to see:
  *  - staff: venue:{id} (+ owner:{id} with dashboard access); station:{id} on request
  *  - customers who joined: table-session:{id} and venue-menu:{id}
  *  - anyone holding a valid table QR token: table:{id} and venue-menu:{id} (read-only scanners
@@ -58,11 +56,13 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
 
   async handleConnection(socket: Socket): Promise<void> {
     try {
-      const cookies = parseCookies(socket.handshake.headers.cookie ?? '');
+      const auth = socket.handshake.auth as { token?: unknown } | undefined;
+      const token = typeof auth?.token === 'string' ? auth.token : undefined;
       const data = socket.data as SocketData;
+      // The token's type decides which (if either) resolves.
       const [staff, customer] = await Promise.all([
-        this.sessions.staff(cookies[COOKIE.staff]),
-        this.sessions.customer(cookies[COOKIE.customer]),
+        this.sessions.staff(token),
+        this.sessions.customer(token),
       ]);
       const rooms: string[] = [];
       if (staff) {

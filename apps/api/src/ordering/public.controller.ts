@@ -1,26 +1,27 @@
-import { Controller, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
 import {
   createOrderSchema,
+  refreshTokenSchema,
   serviceRequestSchema,
   type CreateOrderInput,
+  type RefreshTokenInput,
   type ServiceRequestInput,
 } from '@app/shared';
 import { CustomerAuth, CurrentCustomer } from '../auth/guards';
 import { SessionResolver } from '../auth/session-resolver.service';
+import { SessionTokensService } from '../auth/session-tokens.service';
+import { CredentialResponse } from '../common/idempotency.interceptor';
 import { PUBLIC_THROTTLE } from '../common/rate-limits';
 import type { AppRequest, CustomerPrincipal } from '../common/request';
-import { COOKIE, TokenService } from '../common/tokens.service';
+import { bearerToken } from '../common/tokens.service';
 import { ZBody } from '../common/zod.pipe';
 import { CustomerService } from './customer.service';
 import { OrdersService } from './orders.service';
 import { PublicMenuService } from './public-menu.service';
 import { SessionsService } from './sessions.service';
 
-const CUSTOMER_COOKIE_HOURS = 12;
-
-/** Customer endpoints: no login, ever. Identity is an anonymous signed cookie per table session. */
+/** Customer endpoints: no login, ever. Identity is an anonymous bearer token per table session. */
 @Controller('v1/public')
 @Throttle(PUBLIC_THROTTLE)
 export class PublicController {
@@ -30,11 +31,11 @@ export class PublicController {
     private readonly orders: OrdersService,
     private readonly sessions: SessionsService,
     private readonly resolver: SessionResolver,
-    private readonly tokens: TokenService,
+    private readonly sessionTokens: SessionTokensService,
   ) {}
 
   private async currentCustomer(req: AppRequest) {
-    return this.resolver.customer(req.cookies?.[COOKIE.customer] as string | undefined);
+    return this.resolver.customer(bearerToken(req));
   }
 
   @Get('t/:slug/:token')
@@ -49,26 +50,22 @@ export class PublicController {
 
   @Post('t/:slug/:token/join')
   @HttpCode(200)
-  async join(
-    @Param('slug') slug: string,
-    @Param('token') token: string,
-    @Req() req: AppRequest,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  @CredentialResponse()
+  async join(@Param('slug') slug: string, @Param('token') token: string, @Req() req: AppRequest) {
     const resolved = await this.menu.resolveTable(slug, token);
     const joined = await this.customers.join(resolved, await this.currentCustomer(req));
-    const ttl = CUSTOMER_COOKIE_HOURS * 3600_000;
-    const jwt = this.tokens.sign(
-      {
-        typ: 'customer',
-        csid: joined.customerSessionId,
-        tsid: joined.tableSessionId,
-        vid: resolved.venue.id,
-      },
-      ttl / 1000,
-    );
-    this.tokens.setCookie(res, COOKIE.customer, jwt, ttl);
-    return { ok: true, tableSessionId: joined.tableSessionId };
+    const tokens = await this.sessionTokens.issueCustomer({
+      ...joined,
+      venueId: resolved.venue.id,
+    });
+    return { ok: true, tableSessionId: joined.tableSessionId, ...tokens };
+  }
+
+  @Post('session/refresh')
+  @HttpCode(200)
+  @CredentialResponse()
+  refresh(@ZBody(refreshTokenSchema) body: RefreshTokenInput) {
+    return this.sessionTokens.refreshCustomer(body.refreshToken);
   }
 
   /** "Call waiter" also works before the table is open (that's how customers ask for it). */

@@ -82,7 +82,8 @@ Target architecture: API on **Cloud Run** (one service per environment), Postgre
 Redis on **Upstash**, menu photos on **Cloudflare R2**, both PWAs on **Cloudflare Pages**,
 payments via **Paystack** (test keys on staging, live keys on production).
 
-Use one parent domain so cookies are first-party, e.g. for `example.ng`:
+Sign-in uses bearer tokens, not cookies, so the apps and the API can be on any domains
+(even different hosts' free subdomains). A shared parent domain is still the tidy choice, e.g. for `example.ng`:
 
 |                                 | Staging                    | Production         |
 | ------------------------------- | -------------------------- | ------------------ |

@@ -23,7 +23,7 @@ export class RealtimeAdapter extends IoAdapter {
     const server = super.createIOServer(port, {
       ...options,
       path: '/socket.io',
-      cors: { origin: this.env.corsOrigins, credentials: true },
+      cors: { origin: this.env.corsOrigins, credentials: false },
       // Clients reconnect and refetch; keep heartbeats modest for mobile data.
       pingInterval: 25_000,
       pingTimeout: 20_000,

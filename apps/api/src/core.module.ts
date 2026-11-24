@@ -16,6 +16,7 @@ import { TokenService } from './common/tokens.service';
 import { CredentialsService } from './auth/credentials.service';
 import { CustomerGuard, PlatformAdminGuard, StaffGuard } from './auth/guards';
 import { SessionResolver } from './auth/session-resolver.service';
+import { SessionTokensService } from './auth/session-tokens.service';
 import { QrTokenService } from './qr/qr-token.service';
 import { StorageService } from './storage/storage.service';
 
@@ -24,6 +25,7 @@ const SHARED = [
   EventsService,
   TokenService,
   SessionResolver,
+  SessionTokensService,
   CredentialsService,
   StaffGuard,
   CustomerGuard,

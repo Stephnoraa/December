@@ -22,6 +22,17 @@ export interface OkResponse {
 
 // ---- Auth ---------------------------------------------------------------------------------
 
+/**
+ * Returned by every sign-in and refresh. Send `accessToken` as `Authorization: Bearer …`
+ * (it expires after `expiresIn` seconds); trade `refreshToken` for a new pair at the matching
+ * refresh endpoint. Refresh tokens rotate: each one works once.
+ */
+export interface AuthTokensDto {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
 export interface MeDto {
   staff: { id: string; name: string; role: StaffRole };
   venue: {

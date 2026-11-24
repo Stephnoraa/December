@@ -1,10 +1,14 @@
 import {
+  applyDecorators,
   CallHandler,
   ExecutionContext,
+  Header,
   HttpStatus,
   Injectable,
   NestInterceptor,
+  SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { createHash } from 'node:crypto';
 import type { Response } from 'express';
 import { from, mergeMap, of, catchError, throwError, type Observable } from 'rxjs';
@@ -17,6 +21,14 @@ import type { AppRequest } from './request';
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const TTL_MS = 24 * 60 * 60 * 1000;
 const KEY_PATTERN = /^[A-Za-z0-9_-]{8,100}$/;
+const SKIP_IDEMPOTENCY = 'qr:skip-idempotency';
+
+/**
+ * For endpoints that return credentials (sign-in, refresh, device enrolment): the response is
+ * never stored for idempotent replay and never cached (Cache-Control: no-store).
+ */
+export const CredentialResponse = () =>
+  applyDecorators(SetMetadata(SKIP_IDEMPOTENCY, true), Header('Cache-Control', 'no-store'));
 
 function actorScope(req: AppRequest): string {
   if (req.staff) return `staff:${req.staff.sessionId}`;
@@ -34,10 +46,15 @@ function actorScope(req: AppRequest): string {
  */
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
-  constructor(@InjectDb() private readonly db: DbClient) {}
+  constructor(
+    @InjectDb() private readonly db: DbClient,
+    private readonly reflector: Reflector,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== 'http') return next.handle();
+    if (this.reflector.get<boolean | undefined>(SKIP_IDEMPOTENCY, context.getHandler()))
+      return next.handle();
     const req = context.switchToHttp().getRequest<AppRequest>();
     const res = context.switchToHttp().getResponse<Response>();
     const key = req.header('idempotency-key');

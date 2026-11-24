@@ -23,6 +23,7 @@ export interface CustomerPrincipal {
 export interface AdminPrincipal {
   kind: 'admin';
   adminId: string;
+  sessionId: string;
   email: string;
 }
 

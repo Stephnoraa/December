@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { TableDto } from '@app/shared';
-import { apiUrl, errorMessage, get, patch, post } from '../../lib/api';
+import { download, errorMessage, get, patch, post } from '../../lib/api';
 import {
   Badge,
   Button,
@@ -77,7 +77,14 @@ export default function Tables() {
     return [...groups.entries()];
   }, [tables.data]);
 
-  const error = addOne.error ?? addBulk.error ?? toggle.error ?? rotate.error;
+  const pdf = useMutation({
+    mutationFn: (t?: TableDto) =>
+      t
+        ? download(`/v1/admin/tables/qr.pdf?ids=${t.id}`, `table-${t.label}-qr.pdf`)
+        : download('/v1/admin/tables/qr.pdf', 'table-qr-codes.pdf'),
+  });
+
+  const error = addOne.error ?? addBulk.error ?? toggle.error ?? rotate.error ?? pdf.error;
   return (
     <div>
       <PageHeader
@@ -85,12 +92,14 @@ export default function Tables() {
         subtitle="Print the QR sheet and stick each code on its table. Customers scan it to see the menu."
         actions={
           <>
-            <a
-              href={apiUrl('/v1/admin/tables/qr.pdf')}
-              className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+            <button
+              type="button"
+              onClick={() => pdf.mutate(undefined)}
+              disabled={pdf.isPending}
+              className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
             >
               Download QR sheet (PDF)
-            </a>
+            </button>
             <Button variant="secondary" onClick={() => setAdding(true)}>
               Add many tables
             </Button>
@@ -152,12 +161,14 @@ export default function Tables() {
                       >
                         Open menu link
                       </a>
-                      <a
-                        href={apiUrl(`/v1/admin/tables/qr.pdf?ids=${t.id}`)}
+                      <button
+                        type="button"
+                        onClick={() => pdf.mutate(t)}
+                        disabled={pdf.isPending}
                         className="text-sm font-medium text-slate-700 underline"
                       >
                         Print
-                      </a>
+                      </button>
                       <Button size="sm" variant="ghost" onClick={() => setConfirmRotate(t)}>
                         New QR
                       </Button>

@@ -148,14 +148,14 @@ model Venue {
 }
 
 model Station {
-  id        String     @id @default(uuid(7)) @db.Uuid
-  venueId   String     @db.Uuid
-  venue     Venue      @relation(fields: [venueId], references: [id])
+  id        String      @id @default(uuid(7)) @db.Uuid
+  venueId   String      @db.Uuid
+  venue     Venue       @relation(fields: [venueId], references: [id])
   name      String
-  sortOrder Int        @default(0)
-  active    Boolean    @default(true)
-  createdAt DateTime   @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime   @updatedAt @db.Timestamptz(3)
+  sortOrder Int         @default(0)
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
   menuItems MenuItem[]
   items     OrderItem[]
 
@@ -268,27 +268,45 @@ model Device {
 }
 
 model StaffSession {
-  id         String      @id @default(uuid(7)) @db.Uuid
-  venueId    String      @db.Uuid
-  staffId    String      @db.Uuid
-  staff      StaffMember @relation(fields: [staffId], references: [id])
-  method     AuthMethod
-  deviceId   String?     @db.Uuid
-  device     Device?     @relation(fields: [deviceId], references: [id])
-  expiresAt  DateTime    @db.Timestamptz(3)
-  revokedAt  DateTime?   @db.Timestamptz(3)
-  lastSeenAt DateTime    @default(now()) @db.Timestamptz(3)
-  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+  id               String      @id @default(uuid(7)) @db.Uuid
+  venueId          String      @db.Uuid
+  staffId          String      @db.Uuid
+  staff            StaffMember @relation(fields: [staffId], references: [id])
+  method           AuthMethod
+  deviceId         String?     @db.Uuid
+  device           Device?     @relation(fields: [deviceId], references: [id])
+  expiresAt        DateTime    @db.Timestamptz(3)
+  revokedAt        DateTime?   @db.Timestamptz(3)
+  lastSeenAt       DateTime    @default(now()) @db.Timestamptz(3)
+  createdAt        DateTime    @default(now()) @db.Timestamptz(3)
+  /// SHA-256 of the current refresh token secret; rotated on every refresh.
+  refreshTokenHash String?
 
   @@index([staffId])
 }
 
 model PlatformAdmin {
-  id           String   @id @default(uuid(7)) @db.Uuid
-  email        String   @unique
+  id           String                 @id @default(uuid(7)) @db.Uuid
+  email        String                 @unique
   name         String
   passwordHash String
-  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  createdAt    DateTime               @default(now()) @db.Timestamptz(3)
+  sessions     PlatformAdminSession[]
+}
+
+/// A super-admin sign-in (not tenant-owned). Revocable like StaffSession.
+model PlatformAdminSession {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  adminId          String        @db.Uuid
+  admin            PlatformAdmin @relation(fields: [adminId], references: [id])
+  /// SHA-256 of the current refresh token secret; rotated on every refresh.
+  refreshTokenHash String
+  expiresAt        DateTime      @db.Timestamptz(3)
+  revokedAt        DateTime?     @db.Timestamptz(3)
+  lastSeenAt       DateTime      @default(now()) @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([adminId])
 }
 
 /// At most one non-closed session per table (partial unique index in the migration).
@@ -315,13 +333,18 @@ model TableSession {
 
 /// An anonymous customer device that joined a table session (no login, ever).
 model CustomerSession {
-  id             String       @id @default(uuid(7)) @db.Uuid
-  venueId        String       @db.Uuid
-  tableSessionId String       @db.Uuid
-  tableSession   TableSession @relation(fields: [tableSessionId], references: [id])
-  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
-  lastSeenAt     DateTime     @default(now()) @db.Timestamptz(3)
-  orders         Order[]
+  id               String       @id @default(uuid(7)) @db.Uuid
+  venueId          String       @db.Uuid
+  tableSessionId   String       @db.Uuid
+  tableSession     TableSession @relation(fields: [tableSessionId], references: [id])
+  createdAt        DateTime     @default(now()) @db.Timestamptz(3)
+  lastSeenAt       DateTime     @default(now()) @db.Timestamptz(3)
+  /// SHA-256 of the current refresh token secret; rotated on every refresh.
+  refreshTokenHash String?
+  /// Refresh tokens stop working after this (null on rows from before refresh tokens).
+  expiresAt        DateTime?    @db.Timestamptz(3)
+  revokedAt        DateTime?    @db.Timestamptz(3)
+  orders           Order[]
 }
 
 model Tab {
@@ -440,36 +463,36 @@ model Adjustment {
 }
 
 model Payment {
-  id                String          @id @default(uuid(7)) @db.Uuid
-  venueId           String          @db.Uuid
-  venue             Venue           @relation(fields: [venueId], references: [id])
-  tabId             String          @db.Uuid
-  tab               Tab             @relation(fields: [tabId], references: [id])
+  id                String        @id @default(uuid(7)) @db.Uuid
+  venueId           String        @db.Uuid
+  venue             Venue         @relation(fields: [venueId], references: [id])
+  tabId             String        @db.Uuid
+  tab               Tab           @relation(fields: [tabId], references: [id])
   /// PREPAY: the order this payment releases to the stations.
-  orderId           String?         @db.Uuid
-  order             Order?          @relation(fields: [orderId], references: [id])
+  orderId           String?       @db.Uuid
+  order             Order?        @relation(fields: [orderId], references: [id])
   amountKobo        Int
   method            PaymentMethod
   /// Paystack channel reported on success (card, bank_transfer, ussd, ...).
   channel           String?
   status            PaymentStatus
   /// Our reference, sent to Paystack as the transaction reference.
-  reference         String          @unique
+  reference         String        @unique
   email             String?
-  customerSessionId String?         @db.Uuid
-  recordedByStaffId String?         @db.Uuid
+  customerSessionId String?       @db.Uuid
+  recordedByStaffId String?       @db.Uuid
   note              String?
   authorizationUrl  String?
   /// Online amount not yet confirmed counts against the balance until this time.
-  reservedUntil     DateTime?       @db.Timestamptz(3)
+  reservedUntil     DateTime?     @db.Timestamptz(3)
   /// Portion of this payment beyond the balance owed (flagged for refund).
-  overpaidKobo      Int             @default(0)
+  overpaidKobo      Int           @default(0)
   providerPayload   Json?
   failureReason     String?
-  verifiedAt        DateTime?       @db.Timestamptz(3)
-  lastCheckedAt     DateTime?       @db.Timestamptz(3)
-  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+  verifiedAt        DateTime?     @db.Timestamptz(3)
+  lastCheckedAt     DateTime?     @db.Timestamptz(3)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
 
   @@index([venueId, status, createdAt])
   @@index([tabId])
