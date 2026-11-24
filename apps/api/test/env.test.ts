@@ -20,7 +20,6 @@ describe('environment validation', () => {
     expect(env.PORT).toBe(3000);
     expect(env.paymentsProvider).toBe('mock');
     expect(env.devRoutesEnabled).toBe(true);
-    expect(env.cookieSecure).toBe(false);
     expect(env.corsOrigins).toEqual(['http://localhost:5173', 'http://localhost:5174']);
   });
 
@@ -95,7 +94,6 @@ describe('environment validation', () => {
     expect(prod).toMatchObject({
       paymentsProvider: 'paystack',
       devRoutesEnabled: false,
-      cookieSecure: true,
       redisKeyPrefix: 'qr:production',
     });
   });

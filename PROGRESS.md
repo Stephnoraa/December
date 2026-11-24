@@ -46,7 +46,7 @@ signed QR tokens + rotation + printable PDF, menu categories/items/add-ons, phot
 
 **M3 – Ordering loop.** Socket.IO gateway (+ Redis adapter), rooms (venue, owner, station,
 table-session, table, venue-menu), typed events. Table sessions (waiter opens/closes), customer
-join via signed cookie, ordering (snapshots, add-ons, notes), live item status, live tab,
+join via anonymous session token, ordering (snapshots, add-ons, notes), live item status, live tab,
 call-waiter / request-bill. Customer PWA, station screen, waiter floor view.
 
 **M4 – Payments.** Tab calculation wiring, PaymentProvider interface (Paystack + mock),
@@ -76,10 +76,11 @@ Format: decision — reason.
 - Venue model scoped by AND-ing `id` (not overwriting) — a lookup for another venue's id returns nothing.
 - Postgres RLS not added — not required by the MVP brief; the Prisma extension + tests are the enforcement. Revisit with multi-branch.
 - Owner/manager emails are globally unique and each staff member belongs to one venue — the UI handles one venue per organization; a membership table can come later.
-- PIN login only on devices a manager has enabled (device cookie, token stored hashed); staff pick their name then enter a PIN — no unique-PIN requirement, no remote brute force.
+- PIN login only on devices a manager has enabled (device token in localStorage, sent as `X-Device-Token`, stored hashed); staff pick their name then enter a PIN — no unique-PIN requirement, no remote brute force.
 - PIN lockout: 5 consecutive wrong PINs → lock 5 min, doubling per lockout up to 60 min, audited — standard, low friction.
 - PIN checks run outside the caller's transaction — failed attempts must persist when the request errors.
-- Sessions stored server-side (StaffSession) behind a signed JWT cookie: password sessions 7 days, PIN sessions 12 hours (a shift) — revocable; 2FA can later add a step-up flag to the session.
+- Sessions stored server-side (StaffSession, PlatformAdminSession, CustomerSession): password sessions 7 days, PIN sessions 12 hours (a shift), admin and customer 12 hours — revocable; 2FA can later add a step-up flag to the session.
+- 2026-11-24 — Auth moved from HttpOnly cookies to bearer tokens (owner's request; deviates from the brief's "signed HttpOnly cookies") so the PWAs and the API can run on different sites (e.g. separate `onrender.com` subdomains, where SameSite cookies are never sent). 15-minute access JWTs in memory; one-time rotating refresh tokens in localStorage (only a hash stored, atomic swap, reuse revokes the session, refreshes serialised across tabs with Web Locks); logout and all existing revocation points (deactivate staff, PIN/password change, device revoke, password reset CLI) end refresh too. Token responses are `Cache-Control: no-store` and never kept in idempotency records. Trade-off accepted: script injection (XSS) could read the refresh token, so the short access lifetime, rotation and reuse detection limit the damage. Devices enabled before this change must be enabled again.
 - No email sending in the MVP (receipts are out of scope) — so no email verification or reset email; owners' passwords are reset by the operator via a CLI (see follow-ups).
 - New self-signup venues start ACTIVE; the operator can suspend — onboarding in under an hour without waiting for approval.
 - Default `pricesIncludeVat = true` — menu price is what the guest pays; venues can switch to exclusive.
@@ -120,7 +121,7 @@ Format: decision — reason.
 - Suspending a venue blocks the customer pages (polite "ordering unavailable" message) and new orders/table openings; staff can still sign in and settle open tabs.
 - API image: multi-stage, non-root (`node` user, tini), `pnpm deploy --prod` output with the Prisma client generated in place; the same image runs migrations via the `qr-prisma` wrapper bin (uses `DIRECT_DATABASE_URL`).
 - Cloud Run: min instances 1, 60-minute request timeout (WebSocket max), session affinity, CPU always allocated (instance-based billing) so the in-process scheduler runs, startup CPU boost, `/healthz` probes. Secrets from Secret Manager, one per variable per environment.
-- Frontends on Cloudflare Pages with SPA fallback (no 404.html) and `_headers` for caching/security; `VITE_API_URL` injected at build time. Same parent domain for API and apps so cookies stay first-party (SameSite=Lax).
+- Frontends on Cloudflare Pages with SPA fallback (no 404.html) and `_headers` for caching/security; `VITE_API_URL` injected at build time. Auth is bearer tokens, so the API and apps need not share a domain.
 - The mock payment provider is refused when `APP_ENV=production`; with `NODE_ENV=production` it needs `APP_ENV=staging` + `ALLOW_MOCK_PAYMENTS=true` (dedicated e2e staging service only).
 - Business day for "today" on the dashboard starts 06:00 Africa/Lagos — late-night sales count towards the evening's trading.
 
@@ -158,6 +159,6 @@ GitHub environment **secrets** (per environment)
 Google **Secret Manager** secrets (suffix `-staging` / `-production`; read by Cloud Run)
 `DATABASE_URL` (Neon pooled URL, `?sslmode=require`), `REDIS_URL` (`rediss://default:<token>@<host>:6379`), `SESSION_SECRET` and `QR_TOKEN_SECRET` (each `openssl rand -base64 48`), `PAYSTACK_SECRET_KEY` (`sk_test_…` staging, `sk_live_…` production), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (R2 token).
 
-Optional env (have defaults): `PAYSTACK_WEBHOOK_SECRET`, `PAYSTACK_FEE_BEARER` (`subaccount`), `PAYSTACK_SUBACCOUNT_PERCENTAGE` (`0`), `PAYMENT_RESERVATION_MINUTES` (15), `RECONCILE_AFTER_MINUTES` (3), `PAYMENT_ABANDON_MINUTES` (60), `PREPAY_ORDER_EXPIRY_MINUTES` (30), rate limits, `COOKIE_DOMAIN`, `CORS_ORIGINS`, `REDIS_KEY_PREFIX`.
+Optional env (have defaults): `PAYSTACK_WEBHOOK_SECRET`, `PAYSTACK_FEE_BEARER` (`subaccount`), `PAYSTACK_SUBACCOUNT_PERCENTAGE` (`0`), `PAYMENT_RESERVATION_MINUTES` (15), `RECONCILE_AFTER_MINUTES` (3), `PAYMENT_ABANDON_MINUTES` (60), `PREPAY_ORDER_EXPIRY_MINUTES` (30), rate limits, `CORS_ORIGINS`, `REDIS_KEY_PREFIX`.
 
 After the first deploy: create your platform admin (`pnpm --filter @app/db create-admin`, RUNBOOK §3.9) and run the Paystack test checklist on staging.

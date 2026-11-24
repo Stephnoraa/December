@@ -9,7 +9,7 @@ import {
   type StaffTokenPayload,
 } from '../common/tokens.service';
 
-/** Turns cookie tokens into principals. Shared by HTTP guards and the socket gateway. */
+/** Turns access tokens into principals. Shared by HTTP guards and the socket gateway. */
 @Injectable()
 export class SessionResolver {
   constructor(
@@ -50,7 +50,8 @@ export class SessionResolver {
         include: { tableSession: { select: { id: true, tableId: true, venueId: true } } },
       }),
     );
-    if (!cs || cs.tableSessionId !== payload.tsid || cs.venueId !== payload.vid) return null;
+    if (!cs || cs.revokedAt || cs.tableSessionId !== payload.tsid || cs.venueId !== payload.vid)
+      return null;
     return {
       kind: 'customer',
       customerSessionId: cs.id,
@@ -63,9 +64,19 @@ export class SessionResolver {
   async admin(token: string | undefined): Promise<AdminPrincipal | null> {
     const payload = this.tokens.verify<AdminTokenPayload>(token, 'admin');
     if (!payload) return null;
-    const admin = await tenancy.runAsSystem(() =>
-      this.db.platformAdmin.findUnique({ where: { id: payload.aid } }),
+    const session = await tenancy.runAsSystem(() =>
+      this.db.platformAdminSession.findUnique({
+        where: { id: payload.sid },
+        include: { admin: { select: { id: true, email: true } } },
+      }),
     );
-    return admin ? { kind: 'admin', adminId: admin.id, email: admin.email } : null;
+    if (!session || session.revokedAt || session.expiresAt < new Date()) return null;
+    if (session.adminId !== payload.aid) return null;
+    return {
+      kind: 'admin',
+      adminId: session.admin.id,
+      sessionId: session.id,
+      email: session.admin.email,
+    };
   }
 }

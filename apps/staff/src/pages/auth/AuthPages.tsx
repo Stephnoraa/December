@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { DeviceInfoDto } from '@app/shared';
-import { ApiError, errorMessage, get, post } from '../../lib/api';
+import { ApiError, deviceToken, errorMessage, get, post } from '../../lib/api';
 import { resetSocket } from '../../lib/socket';
 import { Button, Card, ErrorBanner, Field, Input, Loading } from '../../components/ui';
 
@@ -45,6 +45,8 @@ export function useDeviceInfo() {
   return useQuery({
     queryKey: ['device'],
     queryFn: async () => {
+      // Only browsers a manager enabled for PIN login hold a device token.
+      if (!deviceToken.get()) return null;
       try {
         return await get<DeviceInfoDto>('/v1/auth/device');
       } catch (err) {

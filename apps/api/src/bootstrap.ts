@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import cookieParser from 'cookie-parser';
 import express from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -35,12 +34,12 @@ export async function createApp(
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
-  app.use(cookieParser());
+  // Bearer-token auth: no cookies, so browsers send no credentials and CSRF does not apply.
   app.enableCors({
     origin: env.corsOrigins,
-    credentials: true,
+    credentials: false,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Idempotency-Key'],
+    allowedHeaders: ['Content-Type', 'Idempotency-Key', 'Authorization', 'X-Device-Token'],
     exposedHeaders: ['Idempotent-Replayed'],
     maxAge: 600,
   });

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { formatVenueDateTime, type PlatformVenueDto } from '@app/shared';
-import { ApiError, errorMessage, get, post } from '../../lib/api';
+import { adminTokens, ApiError, errorMessage, get, post } from '../../lib/api';
 import {
   Badge,
   Button,
@@ -93,7 +93,10 @@ function Venues({ email }: { email: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform-venues'] }),
   });
   const logout = useMutation({
-    mutationFn: () => post('/v1/platform/auth/logout'),
+    mutationFn: async () => {
+      await post('/v1/platform/auth/logout').catch(() => undefined);
+      adminTokens.clear();
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform-me'] }),
   });
   return (

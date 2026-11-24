@@ -43,6 +43,11 @@ export type EnableDeviceInput = z.infer<typeof enableDeviceSchema>;
 
 export const platformLoginSchema = loginSchema;
 
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(20).max(300),
+});
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
+
 // ---- Venue settings -----------------------------------------------------------------------
 
 export const venueSettingsSchema = z

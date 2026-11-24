@@ -1,18 +1,20 @@
-import { Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
 import {
   enableDeviceSchema,
   loginSchema,
+  Permission,
   pinLoginSchema,
   platformLoginSchema,
+  refreshTokenSchema,
   signupSchema,
   type EnableDeviceInput,
   type LoginInput,
   type PinLoginInput,
+  type RefreshTokenInput,
   type SignupInput,
 } from '@app/shared';
-import { ZBody } from '../common/zod.pipe';
+import { CredentialResponse } from '../common/idempotency.interceptor';
 import { AUTH_THROTTLE } from '../common/rate-limits';
 import {
   clientIp,
@@ -20,56 +22,48 @@ import {
   type AppRequest,
   type StaffPrincipal,
 } from '../common/request';
-import { COOKIE, TokenService } from '../common/tokens.service';
-import { AuthService, DEVICE_COOKIE_DAYS } from './auth.service';
+import { deviceToken } from '../common/tokens.service';
+import { ZBody } from '../common/zod.pipe';
+import { AuthService } from './auth.service';
 import { AdminAuth, CurrentAdmin, CurrentStaff, StaffAuth } from './guards';
-import { Permission } from '@app/shared';
-
-const ADMIN_SESSION_HOURS = 12;
+import { SessionTokensService } from './session-tokens.service';
 
 @Controller('v1/auth')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
-    private readonly tokens: TokenService,
+    private readonly sessionTokens: SessionTokensService,
   ) {}
-
-  private setStaffSession(res: Response, session: { sessionId: string; expiresAt: Date }) {
-    const ttl = session.expiresAt.getTime() - Date.now();
-    const token = this.tokens.sign(
-      { typ: 'staff', sid: session.sessionId },
-      Math.floor(ttl / 1000),
-    );
-    this.tokens.setCookie(res, COOKIE.staff, token, ttl);
-  }
 
   @Post('signup')
   @Throttle(AUTH_THROTTLE)
-  async signup(
-    @ZBody(signupSchema) body: SignupInput,
-    @Req() req: AppRequest,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const session = await this.auth.signup(body, clientIp(req));
-    this.setStaffSession(res, session);
-    return { ok: true };
+  @CredentialResponse()
+  signup(@ZBody(signupSchema) body: SignupInput, @Req() req: AppRequest) {
+    return this.auth.signup(body, clientIp(req));
   }
 
   @Post('login')
   @HttpCode(200)
   @Throttle(AUTH_THROTTLE)
-  async login(@ZBody(loginSchema) body: LoginInput, @Res({ passthrough: true }) res: Response) {
-    const session = await this.auth.passwordLogin(body);
-    this.setStaffSession(res, session);
-    return { ok: true };
+  @CredentialResponse()
+  login(@ZBody(loginSchema) body: LoginInput) {
+    return this.auth.passwordLogin(body);
   }
 
+  /** Trades a refresh token for a new token pair (the old refresh token stops working). */
+  @Post('refresh')
+  @HttpCode(200)
+  @CredentialResponse()
+  refresh(@ZBody(refreshTokenSchema) body: RefreshTokenInput) {
+    return this.sessionTokens.refreshStaff(body.refreshToken);
+  }
+
+  /** Revokes the session: its access and refresh tokens stop working immediately. */
   @Post('logout')
   @HttpCode(200)
   @StaffAuth()
-  async logout(@CurrentStaff() staff: StaffPrincipal, @Res({ passthrough: true }) res: Response) {
+  async logout(@CurrentStaff() staff: StaffPrincipal) {
     await this.auth.logout(staff.sessionId);
-    this.tokens.clearCookie(res, COOKIE.staff);
     return { ok: true };
   }
 
@@ -79,40 +73,33 @@ export class AuthController {
     return this.auth.me(staff);
   }
 
-  /** Enables PIN login on the current device (manager/owner signed in with a password). */
+  /**
+   * Enables PIN login on the current device (manager/owner signed in with a password).
+   * The client keeps `deviceToken` and sends it as `X-Device-Token` on the device endpoints.
+   */
   @Post('device')
   @StaffAuth(Permission.DEVICES_MANAGE)
+  @CredentialResponse()
   async enableDevice(
     @CurrentStaff() staff: StaffPrincipal,
     @ZBody(enableDeviceSchema) body: EnableDeviceInput,
     @Req() req: AppRequest,
-    @Res({ passthrough: true }) res: Response,
   ) {
     const { token, deviceId } = await this.auth.enableDevice(staff, body.name, clientIp(req));
-    this.tokens.setCookie(res, COOKIE.device, token, DEVICE_COOKIE_DAYS * 86_400_000);
-    return { deviceId };
+    return { deviceId, deviceToken: token };
   }
 
   @Get('device')
   device(@Req() req: AppRequest) {
-    return this.auth.deviceInfo(req.cookies?.[COOKIE.device] as string | undefined);
+    return this.auth.deviceInfo(deviceToken(req));
   }
 
   @Post('pin-login')
   @HttpCode(200)
   @Throttle(AUTH_THROTTLE)
-  async pinLogin(
-    @ZBody(pinLoginSchema) body: PinLoginInput,
-    @Req() req: AppRequest,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const session = await this.auth.pinLogin(
-      req.cookies?.[COOKIE.device] as string | undefined,
-      body,
-      clientIp(req),
-    );
-    this.setStaffSession(res, session);
-    return { ok: true };
+  @CredentialResponse()
+  pinLogin(@ZBody(pinLoginSchema) body: PinLoginInput, @Req() req: AppRequest) {
+    return this.auth.pinLogin(deviceToken(req), body, clientIp(req));
   }
 }
 
@@ -120,31 +107,29 @@ export class AuthController {
 export class PlatformAuthController {
   constructor(
     private readonly auth: AuthService,
-    private readonly tokens: TokenService,
+    private readonly sessionTokens: SessionTokensService,
   ) {}
 
   @Post('login')
   @HttpCode(200)
   @Throttle(AUTH_THROTTLE)
-  async login(
-    @ZBody(platformLoginSchema) body: LoginInput,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const { adminId } = await this.auth.platformLogin(body);
-    const ttl = ADMIN_SESSION_HOURS * 3600_000;
-    this.tokens.setCookie(
-      res,
-      COOKIE.admin,
-      this.tokens.sign({ typ: 'admin', aid: adminId }, ttl / 1000),
-      ttl,
-    );
-    return { ok: true };
+  @CredentialResponse()
+  login(@ZBody(platformLoginSchema) body: LoginInput) {
+    return this.auth.platformLogin(body);
+  }
+
+  @Post('refresh')
+  @HttpCode(200)
+  @CredentialResponse()
+  refresh(@ZBody(refreshTokenSchema) body: RefreshTokenInput) {
+    return this.sessionTokens.refreshAdmin(body.refreshToken);
   }
 
   @Post('logout')
   @HttpCode(200)
-  logout(@Res({ passthrough: true }) res: Response) {
-    this.tokens.clearCookie(res, COOKIE.admin);
+  @AdminAuth()
+  async logout(@CurrentAdmin() admin: AdminPrincipal) {
+    await this.sessionTokens.revokeAdmin(admin.sessionId);
     return { ok: true };
   }
 

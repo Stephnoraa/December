@@ -23,7 +23,7 @@ export interface TestContext {
   db: DbClient;
   venueId: string;
   http: () => ReturnType<typeof request>;
-  agent: () => ReturnType<typeof request.agent>;
+  agent: () => Agent;
   close: () => Promise<void>;
 }
 
@@ -69,7 +69,7 @@ export async function createTestContext(
     db: app.get<DbClient>(DB),
     venueId,
     http: () => request(server),
-    agent: () => request.agent(server),
+    agent: () => tokenAgent(server),
     async close() {
       await app.close();
       await raw.$disconnect();
@@ -80,7 +80,35 @@ export async function createTestContext(
 
 export const idem = () => ({ 'Idempotency-Key': randomUUID() });
 
-type Agent = ReturnType<typeof request.agent>;
+export interface AgentTokens {
+  accessToken?: string;
+  refreshToken?: string;
+  deviceToken?: string;
+}
+
+export type Agent = ReturnType<typeof request.agent> & { tokens: AgentTokens };
+
+/**
+ * A supertest agent that behaves like a browser tab of the PWAs: it keeps the tokens returned by
+ * sign-in/refresh/device responses and sends them on every later request.
+ */
+function tokenAgent(server: Parameters<typeof request>[0]): Agent {
+  const tokens: AgentTokens = {};
+  const agent = request.agent(server);
+  agent.use((req: request.Request) => {
+    if (tokens.accessToken) req.set('Authorization', `Bearer ${tokens.accessToken}`);
+    if (tokens.deviceToken) req.set('X-Device-Token', tokens.deviceToken);
+    req.on('response', (res: { body?: unknown }) => {
+      const body = res.body as AgentTokens | undefined;
+      if (typeof body?.accessToken === 'string') tokens.accessToken = body.accessToken;
+      if (typeof body?.refreshToken === 'string') tokens.refreshToken = body.refreshToken;
+      if (typeof body?.deviceToken === 'string') tokens.deviceToken = body.deviceToken;
+    });
+  });
+  return Object.assign(agent, { tokens });
+}
+
+export const bearer = (token: string | undefined) => ({ Authorization: `Bearer ${token ?? ''}` });
 
 export async function loginOwner(ctx: TestContext): Promise<Agent> {
   const agent = ctx.agent();

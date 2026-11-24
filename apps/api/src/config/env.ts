@@ -45,8 +45,6 @@ const envSchema = z
     STAFF_APP_URL: url.default('http://localhost:5174'),
     /** Extra allowed CORS origins, comma separated (the two app URLs are always allowed). */
     CORS_ORIGINS: optionalString,
-    COOKIE_DOMAIN: optionalString,
-    COOKIE_SECURE: optionalString,
 
     PAYMENTS_PROVIDER: z.enum(['paystack', 'mock']).optional(),
     PAYSTACK_SECRET_KEY: optionalString,
@@ -144,10 +142,6 @@ const envSchema = z
   .transform((env) => {
     const paymentsProvider =
       env.PAYMENTS_PROVIDER ?? (env.PAYSTACK_SECRET_KEY ? 'paystack' : 'mock');
-    const cookieSecure =
-      env.COOKIE_SECURE === undefined
-        ? env.NODE_ENV === 'production'
-        : env.COOKIE_SECURE === 'true';
     const corsOrigins = [
       env.CUSTOMER_APP_URL,
       env.STAFF_APP_URL,
@@ -159,7 +153,6 @@ const envSchema = z
       ...env,
       paymentsProvider,
       redisKeyPrefix: env.REDIS_KEY_PREFIX ?? `qr:${env.APP_ENV}`,
-      cookieSecure,
       corsOrigins: [...new Set(corsOrigins)],
       /** Mock checkout + local storage routes: local/test, or an opted-in staging E2E environment. Never production. */
       devRoutesEnabled:

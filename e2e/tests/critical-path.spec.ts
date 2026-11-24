@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { API_BASE, URLS } from '../playwright.config';
+import { URLS } from '../playwright.config';
 
 /**
  * Critical path (MVP brief §7): waiter opens table → two customer browsers order → station
@@ -39,6 +39,17 @@ async function pinDevice(
   return { ctx, page };
 }
 
+/** Reads a table's QR link from the owner's Tables page (a reload: the session must survive it). */
+async function tableQrUrl(page: Page, label: string): Promise<string> {
+  await page.goto(`${URLS.staff}/setup/tables`);
+  const row = page
+    .getByText(`Table ${label}`, { exact: true })
+    .locator('xpath=ancestor::div[contains(@class,"justify-between")][1]');
+  const href = await row.getByRole('link', { name: 'Open menu link' }).getAttribute('href');
+  expect(href).toBeTruthy();
+  return href!;
+}
+
 async function customer(browser: Browser, qrUrl: string) {
   const ctx = await browser.newContext({
     viewport: { width: 412, height: 915 },
@@ -62,11 +73,7 @@ test('critical path: open → order → station → serve → split payment → 
   const ownerCtx = await browser.newContext();
   const owner = await ownerCtx.newPage();
   await ownerLogin(owner);
-  const tables = (await owner.evaluate(
-    (base) => fetch(`${base}/v1/admin/tables`, { credentials: 'include' }).then((r) => r.json()),
-    API_BASE,
-  )) as { label: string; qrUrl: string }[];
-  const qrUrl = tables.find((t) => t.label === 'M1')!.qrUrl;
+  const qrUrl = await tableQrUrl(owner, 'M1');
 
   // --- Waiter and station screens sign in with PINs on enabled devices ----------------------
   const waiter = await pinDevice(browser, 'Floor tablet', 'Chidi Waiter', '3333');

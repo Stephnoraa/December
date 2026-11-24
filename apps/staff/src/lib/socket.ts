@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { SocketCommand, type SocketEvent, type SocketPayload } from '@app/shared';
+import { staffTokens } from './api';
 
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || undefined;
 
@@ -11,7 +12,13 @@ export function getSocket(): Socket {
   if (!shared) {
     shared = io(BASE ?? window.location.origin, {
       path: '/socket.io',
-      withCredentials: true,
+      // Called on every (re)connect, so a reconnect always carries a fresh access token.
+      auth: (cb) => {
+        staffTokens.accessToken().then(
+          (token) => cb(token ? { token } : {}),
+          () => cb({}),
+        );
+      },
       transports: ['websocket', 'polling'],
       reconnectionDelayMax: 10_000,
     });

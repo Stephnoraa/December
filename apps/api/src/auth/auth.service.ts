@@ -4,6 +4,7 @@ import { Prisma, tenancy, type DbClient } from '@app/db';
 import {
   canUsePasswordLogin,
   ErrorCode,
+  type AuthTokensDto,
   ROLE_PERMISSIONS,
   type LoginInput,
   type PinLoginInput,
@@ -15,11 +16,12 @@ import { InjectDb } from '../common/db';
 import { AppError } from '../common/errors';
 import type { StaffPrincipal } from '../common/request';
 import { StorageService } from '../storage/storage.service';
+import { TokenService } from '../common/tokens.service';
 import { CredentialsService } from './credentials.service';
+import { SessionTokensService } from './session-tokens.service';
 
 export const PASSWORD_SESSION_HOURS = 24 * 7;
 export const PIN_SESSION_HOURS = 12;
-export const DEVICE_COOKIE_DAYS = 365;
 
 export function hashDeviceToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -56,6 +58,8 @@ export class AuthService {
     private readonly credentials: CredentialsService,
     private readonly audit: AuditService,
     private readonly storage: StorageService,
+    private readonly tokens: TokenService,
+    private readonly sessionTokens: SessionTokensService,
   ) {}
 
   private async uniqueSlug(name: string): Promise<string> {
@@ -72,10 +76,7 @@ export class AuthService {
   }
 
   /** Owner self-signup: creates the organization, the venue and the owner account. */
-  async signup(
-    input: SignupInput,
-    ip: string | null,
-  ): Promise<{ sessionId: string; expiresAt: Date }> {
+  async signup(input: SignupInput, ip: string | null): Promise<AuthTokensDto> {
     return tenancy.runAsSystem(async () => {
       const existing = await this.db.staffMember.findUnique({ where: { email: input.email } });
       if (existing)
@@ -112,10 +113,17 @@ export class AuthService {
             ip,
           });
           const expiresAt = new Date(Date.now() + PASSWORD_SESSION_HOURS * 3600_000);
+          const refresh = this.tokens.newRefreshSecret();
           const session = await tx.staffSession.create({
-            data: { venueId: venue.id, staffId: owner.id, method: 'PASSWORD', expiresAt },
+            data: {
+              venueId: venue.id,
+              staffId: owner.id,
+              method: 'PASSWORD',
+              expiresAt,
+              refreshTokenHash: refresh.hash,
+            },
           });
-          return { sessionId: session.id, expiresAt };
+          return this.sessionTokens.staffPair(session.id, refresh.secret);
         });
       } catch (err) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -129,7 +137,7 @@ export class AuthService {
     });
   }
 
-  async passwordLogin(input: LoginInput): Promise<{ sessionId: string; expiresAt: Date }> {
+  async passwordLogin(input: LoginInput): Promise<AuthTokensDto> {
     return tenancy.runAsSystem(async () => {
       const staff = await this.db.staffMember.findUnique({ where: { email: input.email } });
       const valid = await this.credentials.verifyPassword(staff?.passwordHash, input.password);
@@ -141,10 +149,17 @@ export class AuthService {
         );
       }
       const expiresAt = new Date(Date.now() + PASSWORD_SESSION_HOURS * 3600_000);
+      const refresh = this.tokens.newRefreshSecret();
       const session = await this.db.staffSession.create({
-        data: { venueId: staff.venueId, staffId: staff.id, method: 'PASSWORD', expiresAt },
+        data: {
+          venueId: staff.venueId,
+          staffId: staff.id,
+          method: 'PASSWORD',
+          expiresAt,
+          refreshTokenHash: refresh.hash,
+        },
       });
-      return { sessionId: session.id, expiresAt };
+      return this.sessionTokens.staffPair(session.id, refresh.secret);
     });
   }
 
@@ -247,7 +262,7 @@ export class AuthService {
     deviceToken: string | undefined,
     input: PinLoginInput,
     ip: string | null,
-  ): Promise<{ sessionId: string; expiresAt: Date }> {
+  ): Promise<AuthTokensDto> {
     const device = await this.resolveDevice(deviceToken);
     if (!device)
       throw new AppError(
@@ -265,6 +280,7 @@ export class AuthService {
         ip,
       );
       const expiresAt = new Date(Date.now() + PIN_SESSION_HOURS * 3600_000);
+      const refresh = this.tokens.newRefreshSecret();
       const session = await this.db.staffSession.create({
         data: {
           venueId: device.venueId,
@@ -272,13 +288,14 @@ export class AuthService {
           method: 'PIN',
           deviceId: device.id,
           expiresAt,
+          refreshTokenHash: refresh.hash,
         },
       });
-      return { sessionId: session.id, expiresAt };
+      return this.sessionTokens.staffPair(session.id, refresh.secret);
     });
   }
 
-  async platformLogin(input: LoginInput): Promise<{ adminId: string }> {
+  async platformLogin(input: LoginInput): Promise<AuthTokensDto> {
     return tenancy.runAsSystem(async () => {
       const admin = await this.db.platformAdmin.findUnique({ where: { email: input.email } });
       const valid = await this.credentials.verifyPassword(admin?.passwordHash, input.password);
@@ -289,7 +306,7 @@ export class AuthService {
           HttpStatus.UNAUTHORIZED,
         );
       }
-      return { adminId: admin.id };
+      return this.sessionTokens.createAdminSession(admin.id);
     });
   }
 }

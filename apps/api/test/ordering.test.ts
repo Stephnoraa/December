@@ -1,14 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SocketEvent } from '@app/shared';
-import { createTestContext, idem, loginOwner, pinAgent, type TestContext } from './helpers';
-import {
-  connectSocket,
-  cookieHeader,
-  listen,
-  menuItem,
-  nextEvent,
-  tableLink,
-} from './ordering-helpers';
+import { bearer, createTestContext, idem, loginOwner, pinAgent, type TestContext } from './helpers';
+import { connectSocket, listen, menuItem, nextEvent, tableLink } from './ordering-helpers';
 
 let ctx: TestContext;
 let waiter: Awaited<ReturnType<typeof pinAgent>>;
@@ -41,7 +34,7 @@ describe('anti-prank: nobody can order to a table a waiter has not opened', () =
     expect(order.body.error.code).toBe('UNAUTHENTICATED');
   });
 
-  it('a customer cookie from an earlier, closed session cannot order', async () => {
+  it('a customer token from an earlier, closed session cannot order', async () => {
     const { table, base } = await tableLink(ctx, 'M6');
     const opened = await waiter.post(`/v1/staff/tables/${table.id}/open`).set(idem()).expect(201);
     const cust = ctx.agent();
@@ -53,6 +46,29 @@ describe('anti-prank: nobody can order to a table a waiter has not opened', () =
       .send({ items: [{ menuItemId: jollof.id, quantity: 1 }] })
       .expect(409);
     expect(res.body.error.code).toBe('TABLE_NOT_OPEN');
+  });
+
+  it('rotates customer refresh tokens; reusing an old one ends that customer session', async () => {
+    const { table, base } = await tableLink(ctx, 'M5');
+    const opened = await waiter.post(`/v1/staff/tables/${table.id}/open`).set(idem()).expect(201);
+    const join = await ctx.http().post(`${base}/join`).expect(200);
+    const refresh = (refreshToken: string) =>
+      ctx.http().post('/v1/public/session/refresh').send({ refreshToken });
+    const rotated = await refresh(join.body.refreshToken).expect(200);
+    expect(rotated.headers['cache-control']).toBe('no-store');
+    await ctx.http().get('/v1/public/session').set(bearer(rotated.body.accessToken)).expect(200);
+    await refresh(join.body.refreshToken).expect(401);
+    await ctx.http().get('/v1/public/session').set(bearer(rotated.body.accessToken)).expect(401);
+    await refresh(rotated.body.refreshToken).expect(401);
+    // Scanning the QR code again starts a fresh customer session on the same tab.
+    const again = await ctx
+      .http()
+      .post(`${base}/join`)
+      .set(bearer(rotated.body.accessToken))
+      .expect(200);
+    expect(again.body.tableSessionId).toBe(opened.body.tableSessionId);
+    await ctx.http().get('/v1/public/session').set(bearer(again.body.accessToken)).expect(200);
+    await waiter.post(`/v1/staff/sessions/${opened.body.tableSessionId}/close`).expect(200);
   });
 
   it('lets customers call the waiter before the table is open, without spamming', async () => {
@@ -138,7 +154,10 @@ describe('the ordering loop', () => {
     const b1 = await bobAgent.post(`${base}/join`).expect(200);
     expect(a1.body.tableSessionId).toBe(tableSessionId);
     expect(b1.body.tableSessionId).toBe(tableSessionId);
-    expect(a1.headers['set-cookie']?.[0]).toMatch(/qr_customer=.*HttpOnly/i);
+    expect(a1.headers['set-cookie']).toBeUndefined();
+    expect(a1.headers['cache-control']).toBe('no-store');
+    expect(a1.body).toMatchObject({ expiresIn: 900 });
+    expect(a1.body.accessToken).not.toBe(b1.body.accessToken);
     const landing = await aliceAgent.get(base).expect(200);
     expect(landing.body).toMatchObject({ open: true, joined: true });
     await aliceAgent.post(`${base}/join`).expect(200);
@@ -333,7 +352,7 @@ describe('realtime notifications', () => {
       .post('/v1/auth/login')
       .send({ email: 'owner@demo.test', password: 'demo-owner-pass' })
       .expect(200);
-    const staffSocket = await connectSocket(url, cookieHeader(owner.headers['set-cookie']));
+    const staffSocket = await connectSocket(url, owner.body.accessToken);
     const scanner = await connectSocket(url);
     const ack = await scanner.emitWithAck('subscribe.table', {
       venueSlug: 'demo-lounge',
@@ -352,21 +371,18 @@ describe('realtime notifications', () => {
     expect((await opened).tableId).toBe(table.id);
     await floorChanged;
 
-    // Customer joins, then reconnects so the socket carries the customer cookie.
+    // Customer joins, then reconnects so the socket carries the customer token.
     const join = await ctx.http().post(`${base}/join`).expect(200);
-    const custCookie = cookieHeader(join.headers['set-cookie']);
-    const customerSocket = await connectSocket(url, custCookie);
+    const custToken = join.body.accessToken as string;
+    const customerSocket = await connectSocket(url, custToken);
 
     // Station screen subscribes to its station room.
-    const stationCookie = await ctx
+    const station = await ctx
       .http()
       .post('/v1/auth/login')
       .send({ email: 'manager@demo.test', password: 'demo-manager-pass' })
       .expect(200);
-    const stationSocket = await connectSocket(
-      url,
-      cookieHeader(stationCookie.headers['set-cookie']),
-    );
+    const stationSocket = await connectSocket(url, station.body.accessToken);
     const kitchen = await ctx.raw.station.findFirstOrThrow({
       where: { venueId: ctx.venueId, name: 'Kitchen' },
     });
@@ -387,7 +403,7 @@ describe('realtime notifications', () => {
     await ctx
       .http()
       .post('/v1/public/session/orders')
-      .set('Cookie', custCookie)
+      .set('Authorization', `Bearer ${custToken}`)
       .send({ items: [{ menuItemId: suya.id, quantity: 1 }] })
       .expect(201);
     expect((await queueChanged).stationId).toBe(kitchen.id);

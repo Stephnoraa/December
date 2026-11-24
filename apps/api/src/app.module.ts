@@ -36,7 +36,7 @@ export class AppModule {
             env.NODE_ENV === 'development' && hasPrettyLogs()
               ? { target: 'pino-pretty', options: { singleLine: true } }
               : undefined,
-          redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
+          redact: ['req.headers.authorization', 'req.headers["x-device-token"]'],
           autoLogging: { ignore: (req) => req.url === '/healthz' || req.url === '/readyz' },
           // Cloud Logging reads "severity".
           formatters: { level: (label) => ({ severity: label.toUpperCase(), level: label }) },

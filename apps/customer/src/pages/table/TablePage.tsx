@@ -71,7 +71,7 @@ export function TablePage() {
   const join = useMutation({
     mutationFn: () => post<{ tableSessionId: string }>(`/v1/public/t/${slug}/${token}/join`),
     onSuccess: async () => {
-      resetSocket(); // reconnect with the new customer cookie
+      resetSocket(); // reconnect with the new customer token
       await qc.invalidateQueries({ queryKey: landingKey });
     },
   });

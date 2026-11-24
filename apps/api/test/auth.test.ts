@@ -1,5 +1,15 @@
+import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext, DEMO, loginOwner, staffByRole, type TestContext } from './helpers';
+import {
+  bearer,
+  createTestContext,
+  DEMO,
+  loginOwner,
+  pinAgent,
+  staffByRole,
+  type TestContext,
+} from './helpers';
 
 let ctx: TestContext;
 
@@ -19,7 +29,7 @@ describe('health', () => {
 });
 
 describe('owner signup and password login', () => {
-  it('signs up an owner, creates the venue and a session cookie', async () => {
+  it('signs up an owner, creates the venue and returns a token pair', async () => {
     const agent = ctx.agent();
     const res = await agent
       .post('/v1/auth/signup')
@@ -31,7 +41,18 @@ describe('owner signup and password login', () => {
         venueName: 'Bola Lounge',
       })
       .expect(201);
-    expect(res.headers['set-cookie']?.[0]).toMatch(/qr_staff=.*HttpOnly/i);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({
+      accessToken: expect.any(String),
+      refreshToken: expect.stringMatching(/^[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/),
+      expiresIn: 900,
+    });
+    // Only a hash of the refresh secret is stored.
+    const [sessionId, secret] = (res.body.refreshToken as string).split('.');
+    const session = await ctx.raw.staffSession.findUniqueOrThrow({ where: { id: sessionId } });
+    expect(session.refreshTokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(session.refreshTokenHash).not.toContain(secret);
     const me = await agent.get('/v1/auth/me').expect(200);
     expect(me.body.staff.role).toBe('OWNER');
     expect(me.body.venue.name).toBe('Bola Lounge');
@@ -205,9 +226,164 @@ describe('platform admin', () => {
     expect(me.body.email).toBe(DEMO.admin.email);
   });
 
+  it('rotates admin refresh tokens and revokes the session on logout', async () => {
+    const login = await ctx
+      .http()
+      .post('/v1/platform/auth/login')
+      .send({ email: DEMO.admin.email, password: DEMO.admin.password })
+      .expect(200);
+    const refreshed = await ctx
+      .http()
+      .post('/v1/platform/auth/refresh')
+      .send({ refreshToken: login.body.refreshToken })
+      .expect(200);
+    await ctx
+      .http()
+      .get('/v1/platform/auth/me')
+      .set(bearer(refreshed.body.accessToken))
+      .expect(200);
+    // Staff refresh tokens are not admin refresh tokens and vice versa.
+    await ctx
+      .http()
+      .post('/v1/auth/refresh')
+      .send({ refreshToken: refreshed.body.refreshToken })
+      .expect(401);
+    await ctx
+      .http()
+      .post('/v1/platform/auth/logout')
+      .set(bearer(refreshed.body.accessToken))
+      .expect(200);
+    await ctx
+      .http()
+      .get('/v1/platform/auth/me')
+      .set(bearer(refreshed.body.accessToken))
+      .expect(401);
+    await ctx
+      .http()
+      .post('/v1/platform/auth/refresh')
+      .send({ refreshToken: refreshed.body.refreshToken })
+      .expect(401);
+  });
+
   it('does not accept a staff session as admin', async () => {
     const agent = await loginOwner(ctx);
     await agent.get('/v1/platform/auth/me').expect(401);
+  });
+});
+
+describe('access and refresh tokens', () => {
+  const login = () =>
+    ctx
+      .http()
+      .post('/v1/auth/login')
+      .send({ email: DEMO.owner.email, password: DEMO.owner.password })
+      .expect(200);
+  const refresh = (refreshToken: string) =>
+    ctx.http().post('/v1/auth/refresh').send({ refreshToken });
+
+  it('issues 15-minute access tokens and rejects expired or malformed ones', async () => {
+    const { body } = await login();
+    const jwt = ctx.app.get(JwtService);
+    const claims = jwt.decode<{ iat: number; exp: number; sid: string }>(body.accessToken);
+    expect(claims.exp - claims.iat).toBe(900);
+    await ctx.http().get('/v1/auth/me').set(bearer(body.accessToken)).expect(200);
+    const expired = jwt.sign({ typ: 'staff', sid: claims.sid, exp: claims.iat - 1 });
+    await ctx.http().get('/v1/auth/me').set(bearer(expired)).expect(401);
+    await ctx.http().get('/v1/auth/me').set(bearer('not-a-jwt')).expect(401);
+    await ctx.http().get('/v1/auth/me').set('Authorization', body.accessToken).expect(401);
+  });
+
+  it('rotates the refresh token: the new pair works and the old token works only once', async () => {
+    const first = (await login()).body;
+    const second = await refresh(first.refreshToken).expect(200);
+    expect(second.headers['cache-control']).toBe('no-store');
+    expect(second.body.refreshToken).not.toBe(first.refreshToken);
+    expect(second.body.refreshToken.split('.')[0]).toBe(first.refreshToken.split('.')[0]);
+    await ctx.http().get('/v1/auth/me').set(bearer(second.body.accessToken)).expect(200);
+    const third = await refresh(second.body.refreshToken).expect(200);
+    await ctx.http().get('/v1/auth/me').set(bearer(third.body.accessToken)).expect(200);
+  });
+
+  it('revokes the whole session when an old refresh token is reused', async () => {
+    const first = (await login()).body;
+    const rotated = (await refresh(first.refreshToken).expect(200)).body;
+    const reuse = await refresh(first.refreshToken).expect(401);
+    expect(reuse.body.error.code).toBe('UNAUTHENTICATED');
+    // Both the attacker's and the legitimate holder's tokens are now dead.
+    await refresh(rotated.refreshToken).expect(401);
+    await ctx.http().get('/v1/auth/me').set(bearer(rotated.accessToken)).expect(401);
+    const sessionId = first.refreshToken.split('.')[0];
+    const row = await ctx.raw.staffSession.findUniqueOrThrow({ where: { id: sessionId } });
+    expect(row.revokedAt).not.toBeNull();
+  });
+
+  it('logout revokes the access and the refresh token at once', async () => {
+    const tokens = (await login()).body;
+    await ctx.http().post('/v1/auth/logout').set(bearer(tokens.accessToken)).expect(200);
+    await ctx.http().get('/v1/auth/me').set(bearer(tokens.accessToken)).expect(401);
+    await refresh(tokens.refreshToken).expect(401);
+  });
+
+  it('stops refreshing once the session reaches its absolute expiry', async () => {
+    const tokens = (await login()).body;
+    await ctx.raw.staffSession.update({
+      where: { id: tokens.refreshToken.split('.')[0] },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await refresh(tokens.refreshToken).expect(401);
+    await ctx.http().get('/v1/auth/me').set(bearer(tokens.accessToken)).expect(401);
+  });
+
+  it('rejects malformed and unknown refresh tokens without an error', async () => {
+    for (const refreshToken of [
+      'x'.repeat(40),
+      `${'1'.repeat(36)}.${'a'.repeat(43)}`,
+      `${randomUUID()}.${'a'.repeat(43)}`,
+    ]) {
+      const res = await refresh(refreshToken).expect(401);
+      expect(res.body.error.code).toBe('UNAUTHENTICATED');
+    }
+    await refresh('short').expect(400);
+  });
+
+  it('signs a deactivated staff member out everywhere', async () => {
+    const owner = await loginOwner(ctx);
+    const waiterAgent = await pinAgent(ctx, 'WAITER');
+    const waiter = await staffByRole(ctx, 'WAITER');
+    await owner.patch(`/v1/admin/staff/${waiter.id}`).send({ active: false }).expect(200);
+    await waiterAgent.get('/v1/auth/me').expect(401);
+    await refresh(waiterAgent.tokens.refreshToken!).expect(401);
+    await owner.patch(`/v1/admin/staff/${waiter.id}`).send({ active: true }).expect(200);
+  });
+
+  it('a revoked device can neither refresh its sessions nor sign anyone in', async () => {
+    const owner = await loginOwner(ctx);
+    const device = await pinAgent(ctx, 'STATION');
+    const me = await device.get('/v1/auth/me').expect(200);
+    await owner.post(`/v1/admin/devices/${me.body.deviceId}/revoke`).expect(200);
+    await device.get('/v1/auth/me').expect(401);
+    await refresh(device.tokens.refreshToken!).expect(401);
+    await device.get('/v1/auth/device').expect(401);
+    const station = await staffByRole(ctx, 'STATION');
+    const pin = await device
+      .post('/v1/auth/pin-login')
+      .send({ staffId: station.id, pin: DEMO.station.pin })
+      .expect(401);
+    expect(pin.body.error.code).toBe('DEVICE_NOT_REGISTERED');
+  });
+
+  it('uses the X-Device-Token header for the device, never a cookie', async () => {
+    const owner = await loginOwner(ctx);
+    const enabled = await owner.post('/v1/auth/device').send({ name: 'Header tablet' }).expect(201);
+    expect(enabled.headers['set-cookie']).toBeUndefined();
+    expect(enabled.headers['cache-control']).toBe('no-store');
+    expect(enabled.body.deviceToken).toEqual(expect.any(String));
+    await ctx.http().get('/v1/auth/device').expect(401);
+    await ctx
+      .http()
+      .get('/v1/auth/device')
+      .set('X-Device-Token', enabled.body.deviceToken)
+      .expect(200);
   });
 });
 

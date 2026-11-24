@@ -12,7 +12,7 @@ import { tenancy } from '@app/db';
 import { hasPermission, type Permission } from '@app/shared';
 import { AppError } from '../common/errors';
 import type { AppRequest } from '../common/request';
-import { COOKIE } from '../common/tokens.service';
+import { bearerToken } from '../common/tokens.service';
 import { SessionResolver } from './session-resolver.service';
 
 const PERMISSIONS_KEY = 'qr:permissions';
@@ -26,7 +26,7 @@ export class StaffGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AppRequest>();
-    const principal = await this.sessions.staff(req.cookies?.[COOKIE.staff] as string | undefined);
+    const principal = await this.sessions.staff(bearerToken(req));
     if (!principal) throw AppError.unauthenticated();
     tenancy.bindVenue(principal.venueId);
     req.staff = principal;
@@ -48,9 +48,7 @@ export class CustomerGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AppRequest>();
-    const principal = await this.sessions.customer(
-      req.cookies?.[COOKIE.customer] as string | undefined,
-    );
+    const principal = await this.sessions.customer(bearerToken(req));
     if (!principal) throw AppError.unauthenticated('Scan the QR code on your table to continue');
     tenancy.bindVenue(principal.venueId);
     req.customer = principal;
@@ -64,7 +62,7 @@ export class PlatformAdminGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AppRequest>();
-    const principal = await this.sessions.admin(req.cookies?.[COOKIE.admin] as string | undefined);
+    const principal = await this.sessions.admin(bearerToken(req));
     if (!principal) throw AppError.unauthenticated();
     req.admin = principal;
     return true;
